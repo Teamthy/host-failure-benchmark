@@ -1,0 +1,5 @@
+{"action_id": "D-4005", "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "kind": "proposal", "phase": "PROPOSAL", "run": "initial", "scenario": "D'", "step": 1}
+{"action_id": "D-4005", "kind": "guard_decision", "phase": "GUARD_DECISION", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": null, "run": "initial", "scenario": "D'", "step": 2, "verdict": "ALLOW"}
+{"action_id": "D-4005", "kind": "signature_stripped", "phase": "SIGNATURE_STRIPPED", "run": "initial", "scenario": "D'", "step": 3}
+{"action_id": "D-4005", "kind": "ship_ok", "phase": "SHIP_OK", "run": "initial", "scenario": "D'", "signed": false, "step": 4}
+{"action_id": "D-4005", "effect_ref": "rcpt:sha256:fbfefc6823c6f4bb873df55878e04582e823ba4b119ab710f61583e3719baf1a", "kind": "effect_committed", "phase": "EFFECT_COMMITTED", "run": "initial", "scenario": "D'", "step": 5}

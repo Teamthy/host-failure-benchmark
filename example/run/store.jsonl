@@ -1,0 +1,13 @@
+{"kind": "boot", "replayed_seq": 0, "store_seq": 1}
+{"action_id": "A-1042", "kind": "expectation", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "store_seq": 2}
+{"kind": "boot", "replayed_seq": 2, "store_seq": 3}
+{"action_id": "B-2001", "kind": "verdict", "record": {"action_id": "B-2001", "decided_by": "guard-key-1", "decision_ts": 2, "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": "R7", "signature": "b5771cbed9c5858f6e4d82a994be60d93afaf093116a20d78bb80fccd9400a52", "verdict": "BLOCK"}, "store_seq": 4}
+{"action_id": "C-3003", "kind": "issued", "store_seq": 5}
+{"action_id": "C-3003", "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232", "kind": "commitment", "store_seq": 6}
+{"action_id": "C-3004", "kind": "issued", "store_seq": 7}
+{"action_id": "D-4004", "kind": "issued", "store_seq": 8}
+{"action_id": "D-4004", "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "kind": "commitment", "store_seq": 9}
+{"action_id": "D-4004", "kind": "verdict", "record": {"action_id": "D-4004", "decided_by": "guard-key-1", "decision_ts": 2, "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "effect_ref": "rcpt:sha256:630d3bcdfe3a1b1b463c9d8214394570977c6ec11ab21e161cfee2d7f583a8ff", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": null, "signature": "0d8b97722709758ea52a5d58a32d7dca3dcf4544a6d416619e1ef6e9a1c9af4a", "verdict": "ALLOW"}, "store_seq": 10}
+{"action_id": "D-4005", "kind": "issued", "store_seq": 11}
+{"action_id": "D-4005", "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "kind": "commitment", "store_seq": 12}
+{"action_id": "D-4005", "kind": "verdict", "record": {"action_id": "D-4005", "decided_by": "guard-key-1", "decision_ts": 2, "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "effect_ref": "rcpt:sha256:fbfefc6823c6f4bb873df55878e04582e823ba4b119ab710f61583e3719baf1a", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": null, "signature": null, "verdict": "ALLOW"}, "store_seq": 13}

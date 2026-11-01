@@ -1,0 +1,199 @@
+{
+  "checks": [
+    {
+      "claim": "the store's reconciliation report matches what its own journal implies, so the report is derived and not asserted",
+      "class": "meta",
+      "counterclaim": "if the report names gaps the journal cannot support, or omits gaps the journal implies, every gap claim below rests on an unverified summary",
+      "evidence": {
+        "recomputed": [
+          [
+            "A-1042",
+            "name only",
+            null
+          ],
+          [
+            "C-3003",
+            "content",
+            "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232"
+          ],
+          [
+            "C-3004",
+            "name only",
+            null
+          ]
+        ],
+        "reported": [
+          [
+            "A-1042",
+            "name only",
+            null
+          ],
+          [
+            "C-3003",
+            "content",
+            "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232"
+          ],
+          [
+            "C-3004",
+            "name only",
+            null
+          ]
+        ]
+      },
+      "id": "reconcile",
+      "result": "holds"
+    },
+    {
+      "claim": "A guard decision that never left the host is still nameable as missing, because an expectation was registered before the action ran",
+      "class": "P",
+      "counterclaim": "if the store holds a verdict for A-1042, or reconciliation cannot name it, the expectation did not do the work claimed",
+      "evidence": {
+        "gap": {
+          "action_id": "A-1042",
+          "content": null,
+          "strength": "name only"
+        },
+        "verdict_present": false
+      },
+      "id": "A",
+      "result": "holds"
+    },
+    {
+      "claim": "without a prior expectation the same failure leaves no name at all, so M1 depends on the expectation and not on the store noticing something by itself",
+      "class": "P",
+      "counterclaim": "if A-1043 appears anywhere in the store, the store is naming what it was never told about and M1 is measuring the wrong thing",
+      "evidence": {
+        "gap": null,
+        "records": []
+      },
+      "id": "A'",
+      "result": "holds"
+    },
+    {
+      "claim": "a verdict committed locally before a failed ship survives, and lands later carrying the time it was decided rather than the time it arrived",
+      "class": "P",
+      "counterclaim": "if the stored decision timestamp equals the replay step, or the verdict predates the restart, then the record carries recovery time and the claim fails",
+      "evidence": {
+        "arrived_after_recovery": true,
+        "boots": 2,
+        "commit_step": 3,
+        "guard_step": 2,
+        "redecided_on_replay": 0,
+        "replay_step": 2,
+        "ship_failed": true,
+        "stored_ts": 2
+      },
+      "id": "B",
+      "result": "holds"
+    },
+    {
+      "claim": "the timestamp in the store's record is the one the host wrote down before the ship, recovered from a separate file",
+      "class": "P",
+      "counterclaim": "if the write-ahead log disagrees with the store, one of them was reconstructed after the fact and the timestamp is not independent evidence",
+      "evidence": {
+        "stored_ts": 2,
+        "wal_ts": 2
+      },
+      "id": "B.wal",
+      "result": "holds"
+    },
+    {
+      "claim": "the effect did not proceed while the verdict was undurable centrally, so a lost verdict is a failure and not a divergence",
+      "class": "P",
+      "counterclaim": "if an effect was committed in B, the withheld-effect rule was not being tested",
+      "evidence": {
+        "effect_committed": null
+      },
+      "id": "B.effect",
+      "result": "holds"
+    },
+    {
+      "claim": "an issued id plus a preserved commitment names the gap and carries its content, so the missing verdict can be described without the host",
+      "class": "P",
+      "counterclaim": "if reconciliation names C-3003 without its descriptor digest, the commitment did not survive and this is only a name",
+      "evidence": {
+        "expected_content": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232",
+        "gap": {
+          "action_id": "C-3003",
+          "content": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232",
+          "strength": "content"
+        }
+      },
+      "id": "C",
+      "result": "holds"
+    },
+    {
+      "claim": "issuance alone names the gap with no content, so the record knows an action was named and cannot say what it was",
+      "class": "P",
+      "counterclaim": "if C-3004's gap carries content, the issuance-only case was not isolated",
+      "evidence": {
+        "gap": {
+          "action_id": "C-3004",
+          "content": null,
+          "strength": "name only"
+        }
+      },
+      "id": "C'",
+      "result": "holds"
+    },
+    {
+      "claim": "a locally minted id leaves silence: the store cannot name the action at all, and this is the weakest of the three outcomes rather than a variation of the same result",
+      "class": "P",
+      "counterclaim": "if C-3005 appears anywhere, the silence is not silence and the strongest claim in this row would be overstated",
+      "evidence": {
+        "gap": null,
+        "records": []
+      },
+      "id": "C''",
+      "result": "holds"
+    },
+    {
+      "claim": "a complete record verifies against the key it carries, and the descriptor digest recomputes from the action rather than being taken on trust",
+      "class": "V",
+      "counterclaim": "if the signature does not verify over the stored bytes, or the digest does not recompute, the record is only a file that says so",
+      "evidence": {
+        "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
+        "expected": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
+        "signature_ok": true
+      },
+      "id": "D",
+      "result": "holds"
+    },
+    {
+      "claim": "a preserved record whose binding does not verify is quarantined and never counted as verified, and it stays visible rather than being dropped",
+      "class": "V",
+      "counterclaim": "if an unsigned record is accepted, or disappears, quarantine is doing no work",
+      "evidence": {
+        "quarantined": true,
+        "stored": true,
+        "verifies": false
+      },
+      "id": "D'",
+      "result": "holds"
+    },
+    {
+      "claim": "every timestamp in every artifact is a counter step, so two runs agree byte for byte",
+      "class": "meta",
+      "counterclaim": "a wall clock anywhere makes the suite non-deterministic and the comparison moot",
+      "evidence": {
+        "decision_ts_types": [
+          "int",
+          "int"
+        ]
+      },
+      "id": "no-wall-clock",
+      "result": "holds"
+    }
+  ],
+  "summary": {
+    "class_P": [
+      8,
+      8
+    ],
+    "class_V": [
+      2,
+      2
+    ],
+    "failures": []
+  }
+}

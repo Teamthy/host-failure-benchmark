@@ -1,0 +1,5 @@
+{"action_id": "C-3003", "kind": "id_issued", "phase": "ID_ISSUED", "run": "initial", "scenario": "C", "source": "store", "step": 1}
+{"action_id": "C-3003", "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232", "kind": "commitment_preserved", "phase": "COMMITMENT_PRESERVED", "run": "initial", "scenario": "C", "step": 2}
+{"action_id": "C-3003", "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232", "kind": "proposal", "phase": "PROPOSAL", "run": "initial", "scenario": "C", "step": 3}
+{"action_id": "C-3003", "kind": "guard_decision", "phase": "GUARD_DECISION", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": "R7", "run": "initial", "scenario": "C", "step": 4, "verdict": "BLOCK"}
+{"action_id": "C-3003", "kind": "host_dying", "note": "killed before any verdict left the process", "phase": "HOST_DYING", "run": "initial", "scenario": "C", "step": 5}

@@ -1,0 +1,7 @@
+{"action_id": "B-2001", "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232", "kind": "proposal", "phase": "PROPOSAL", "run": "initial", "scenario": "B", "step": 1}
+{"action_id": "B-2001", "kind": "guard_decision", "phase": "GUARD_DECISION", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": "R7", "run": "initial", "scenario": "B", "step": 2, "verdict": "BLOCK"}
+{"action_id": "B-2001", "decision_ts": 2, "kind": "wal_commit", "phase": "WAL_COMMIT", "run": "initial", "scenario": "B", "step": 3}
+{"action_id": "B-2001", "error": "ConnectionRefusedError", "kind": "ship_failed", "phase": "SHIP_FAILED", "run": "initial", "scenario": "B", "step": 4}
+{"action_id": "B-2001", "kind": "effect_withheld", "phase": "EFFECT_WITHHELD", "reason": "verdict not durable centrally", "run": "initial", "scenario": "B", "step": 5}
+{"action_id": "B-2001", "decision_ts": 2, "kind": "replay_read", "phase": "REPLAY_READ", "run": "replay", "scenario": "B", "step": 1}
+{"action_id": "B-2001", "decision_ts": 2, "kind": "replay_shipped", "phase": "REPLAY_SHIPPED", "run": "replay", "scenario": "B", "step": 2}

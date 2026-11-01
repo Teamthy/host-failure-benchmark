@@ -1,0 +1,23 @@
+{
+  "gaps": [
+    {
+      "action_id": "A-1042",
+      "content": null,
+      "reason": "expected verdict, none recorded",
+      "strength": "name only"
+    },
+    {
+      "action_id": "C-3003",
+      "content": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232",
+      "reason": "proposal committed, no verdict recorded",
+      "strength": "content"
+    },
+    {
+      "action_id": "C-3004",
+      "content": null,
+      "reason": "id issued, never resolved, content unknown",
+      "strength": "name only"
+    }
+  ],
+  "ok": true
+}

@@ -1,0 +1,26 @@
+{
+  "artifacts": [
+    "host-A.jsonl",
+    "host-Ap.jsonl",
+    "host-B.jsonl",
+    "host-C.jsonl",
+    "host-Cp.jsonl",
+    "host-Cpp.jsonl",
+    "host-D.jsonl",
+    "host-Dp.jsonl",
+    "port.txt",
+    "store.jsonl",
+    "wal-B.jsonl"
+  ],
+  "python": "3.11.2",
+  "scenarios": [
+    "A",
+    "A'",
+    "C",
+    "C'",
+    "C''",
+    "D",
+    "D'",
+    "B"
+  ]
+}
