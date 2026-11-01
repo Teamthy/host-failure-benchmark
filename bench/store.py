@@ -24,7 +24,7 @@ import os
 import socketserver
 import sys
 
-from common import frame
+from common import record_payload, frame, verify as verify_signature
 
 POLICY_SHA = "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1"
 
@@ -101,6 +101,7 @@ class Store:
         self.commitments = {}
         self.expectations = {}
         self.verdicts = {}
+        self.verdict_state = {}
         self.load()
 
     def load(self):
@@ -118,9 +119,26 @@ class Store:
             self.expectations[aid] = rec
         elif kind == "verdict":
             self.verdicts[aid] = rec
+            # The state is a property of the record, not a claim it makes about itself:
+            # a record whose binding does not verify is stored, kept visible, and never
+            # allowed to resolve a gap.
+            self.verdict_state[aid] = rec.get("state") or self.state_of(rec.get("record"))
         if persist:
             return self.journal.append(rec)
         return rec
+
+    @staticmethod
+    def state_of(record):
+        """verified or unverified, recomputed from the record's own bytes."""
+        if not isinstance(record, dict):
+            return "unverified"
+        signature = record.get("signature")
+        if not isinstance(signature, str) or not signature:
+            return "unverified"
+        try:
+            return "verified" if verify_signature(record_payload(record), signature) else "unverified"
+        except (TypeError, ValueError):
+            return "unverified"
 
     # -- commands ---------------------------------------------------------------------------
 
@@ -144,10 +162,16 @@ class Store:
         return {"ok": True}
 
     def cmd_verdict(self, req):
-        rec = req["record"]
+        rec = req.get("record")
+        if not isinstance(rec, dict) or not isinstance(rec.get("action_id"), str):
+            # A verdict with no action id cannot be stored against anything.
+            return {"ok": False, "stored": False, "error": "record needs an action_id"}
         aid = rec["action_id"]
-        self.apply({"kind": "verdict", "action_id": aid, "record": rec})
-        return {"ok": True, "stored": True}
+        state = self.state_of(rec)
+        stored = self.apply({"kind": "verdict", "action_id": aid, "record": rec,
+                             "state": state})
+        return {"ok": True, "stored": True, "state": state,
+                "store_seq": stored.get("store_seq")}
 
     def cmd_lookup(self, req):
         aid = req["action_id"]
@@ -157,14 +181,16 @@ class Store:
             "commitment": self.commitments.get(aid),
             "expectation": self.expectations.get(aid),
             "verdict": self.verdicts.get(aid),
+            "verdict_state": self.verdict_state.get(aid),
         }
 
     def cmd_reconcile(self, req):
         """Name what is missing. This is the whole point of the store."""
         gaps = []
         for aid in sorted(set(self.issued) | set(self.expectations)):
-            has_verdict = aid in self.verdicts
-            if has_verdict:
+            # Only a verdict that verifies resolves a gap. Anything else stays visible below
+            # as a gap with its reason, because "a record exists" is not "a decision is known".
+            if self.verdict_state.get(aid) == "verified":
                 continue
             if aid in self.expectations:
                 gaps.append({
@@ -196,6 +222,9 @@ class Store:
             "commitments": sorted(self.commitments),
             "expectations": sorted(self.expectations),
             "verdicts": sorted(self.verdicts),
+            "unverified_verdicts": sorted(aid for aid, state in self.verdict_state.items()
+                                          if state != "verified"),
+            "gaps": self.cmd_reconcile({})["gaps"],
         }
 
     def handle(self, req):

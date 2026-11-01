@@ -10,14 +10,16 @@
     },
     "issued": null,
     "ok": true,
-    "verdict": null
+    "verdict": null,
+    "verdict_state": null
   },
   "A'": {
     "commitment": null,
     "expectation": null,
     "issued": null,
     "ok": true,
-    "verdict": null
+    "verdict": null,
+    "verdict_state": null
   },
   "B": {
     "commitment": null,
@@ -36,8 +38,10 @@
         "rule": "R7",
         "signature": "b5771cbed9c5858f6e4d82a994be60d93afaf093116a20d78bb80fccd9400a52",
         "verdict": "BLOCK"
-      }
-    }
+      },
+      "state": "verified"
+    },
+    "verdict_state": "verified"
   },
   "C": {
     "commitment": {
@@ -51,7 +55,8 @@
       "kind": "issued"
     },
     "ok": true,
-    "verdict": null
+    "verdict": null,
+    "verdict_state": null
   },
   "C'": {
     "commitment": null,
@@ -61,14 +66,16 @@
       "kind": "issued"
     },
     "ok": true,
-    "verdict": null
+    "verdict": null,
+    "verdict_state": null
   },
   "C''": {
     "commitment": null,
     "expectation": null,
     "issued": null,
     "ok": true,
-    "verdict": null
+    "verdict": null,
+    "verdict_state": null
   },
   "D": {
     "commitment": {
@@ -95,8 +102,10 @@
         "rule": null,
         "signature": "0d8b97722709758ea52a5d58a32d7dca3dcf4544a6d416619e1ef6e9a1c9af4a",
         "verdict": "ALLOW"
-      }
-    }
+      },
+      "state": "verified"
+    },
+    "verdict_state": "verified"
   },
   "D'": {
     "commitment": {
@@ -123,7 +132,9 @@
         "rule": null,
         "signature": null,
         "verdict": "ALLOW"
-      }
-    }
+      },
+      "state": "unverified"
+    },
+    "verdict_state": "unverified"
   }
 }

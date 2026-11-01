@@ -19,7 +19,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "bench"))
 
-from common import digest, frame, record_payload, verify as verify_signature  # noqa: E402
+from common import (DECIDED_BY, POLICY_SHA, digest, frame, record_payload,  # noqa: E402
+                    verify as verify_signature)
 
 DESC_TRANSITION = {"kind": "state_transition", "from": "draft", "to": "issued"}
 DESC_READ = {"kind": "read", "target": "order-42"}
@@ -84,13 +85,35 @@ def journal_index(records):
 
 
 def step_of(events):
-    return events[0]["step"] if events else None
+    # None is filtered rather than dereferenced: a missing event used to raise here, and a
+    # verifier that raises reports nothing about the run it was asked about.
+    present = [e for e in (events or []) if e]
+    return present[0]["step"] if present else None
 
 
-def find_verdict(store_records, action_id):
+def verdict_state(row):
+    """verified or unverified, recomputed from the record and never read off the journal.
+
+    The journal can say whatever it likes about a record's state. This is the check, so it
+    recomputes from the bytes that are actually there.
+    """
+    record = (row or {}).get("record")
+    if not isinstance(record, dict):
+        return "unverified"
+    signature = record.get("signature")
+    if not isinstance(signature, str) or not signature:
+        return "unverified"
+    try:
+        return "verified" if verify_signature(record_payload(record), signature) else "unverified"
+    except (TypeError, ValueError):
+        return "unverified"
+
+
+def find_verdict(store_records, action_id, state=None):
     for rec in store_records:
         if rec.get("kind") == "verdict" and rec.get("action_id") == action_id:
-            return rec
+            if state is None or verdict_state(rec) == state:
+                return rec
     return None
 
 
@@ -117,7 +140,10 @@ def recompute_gaps(store_records):
         elif kind == "expectation":
             expectations.add(aid)
         elif kind == "verdict":
-            verdicts.add(aid)
+            # A record that exists is not a decision that is known. Only a verdict whose
+            # binding verifies closes a gap, in the verifier as well as in the store.
+            if verdict_state(rec) == "verified":
+                verdicts.add(aid)
 
     gaps = []
     for aid in sorted(issued | expectations):
@@ -139,6 +165,38 @@ def appears_anywhere(store_records, action_id):
 
 
 def verify_run(rundir):
+    """Never raises. A verifier that falls over has not failed the run, it has failed."""
+    try:
+        _verify_run(rundir)
+    except Unreadable as exc:
+        if not _already_reported("artifacts-readable"):
+            check(
+                "artifacts-readable", "meta",
+                "an artifact that cannot be parsed is reported as a damaged run, not as a crash "
+                "in the tool that was supposed to judge it",
+                "if verification itself falls over, a torn file is indistinguishable from a "
+                "broken checker",
+                False,
+                {"file": os.path.basename(exc.path), "line": exc.line_no,
+                 "detail": exc.detail},
+            )
+    except Exception as exc:  # noqa: BLE001 - the point is that nothing escapes
+        check(
+            "verifier", "meta",
+            "the verifier always reaches a verdict about the run, even when the run is damaged "
+            "in a way it did not anticipate",
+            "an unhandled exception leaves no report, so a broken artifact and a broken checker "
+            "look the same to whoever reads the result",
+            False,
+            {"error": "%s: %s" % (type(exc).__name__, exc)},
+        )
+
+
+def _already_reported(check_id):
+    return any(row["id"] == check_id for row in RESULTS)
+
+
+def _verify_run(rundir):
     try:
         store = read_jsonl(os.path.join(rundir, "store.jsonl"))
     except Unreadable as exc:
@@ -176,8 +234,16 @@ def verify_run(rundir):
         {"reported": reported, "recomputed": recomputed},
     )
 
+    unreadable = []
+
     def host(name):
-        return journal_index(read_jsonl(os.path.join(rundir, "host-%s.jsonl" % name)))
+        path = os.path.join(rundir, "host-%s.jsonl" % name)
+        try:
+            return journal_index(read_jsonl(path))
+        except Unreadable as exc:
+            unreadable.append({"file": os.path.basename(path), "line": exc.line_no,
+                               "detail": exc.detail})
+            return {}
 
     ja, jap, jb, jc, jcp, jcpp, jd, jdp = (
         host(n) for n in ("A", "Ap", "B", "C", "Cp", "Cpp", "D", "Dp"))
@@ -192,7 +258,8 @@ def verify_run(rundir):
         "expectation was registered before the action ran",
         "if the store holds a verdict for A-1042, or reconciliation cannot name it, the "
         "expectation did not do the work claimed",
-        bool(gap_a) and verdict_a is None and gap_a.get("strength") == "name only",
+        bool(gap_a) and find_verdict(store, "A-1042", state="verified") is None
+        and gap_a.get("strength") == "name only",
         {"gap": gap_a, "verdict_present": verdict_a is not None},
     )
 
@@ -227,6 +294,10 @@ def verify_run(rundir):
         stored_b and boots and stored_b["store_seq"] > max(b["store_seq"] for b in boots)
     ) if len(boots) > 1 else False
 
+    wal_record = wal_b[0] if wal_b else None
+    wal_sig_ok = bool(wal_record) and isinstance(wal_record.get("signature"), str) and \
+        verify_signature(record_payload(wal_record), wal_record.get("signature"))
+    stored_b_state = verdict_state(stored_b)
     check(
         "B", "P",
         "a verdict committed locally before a failed ship survives, and lands later carrying "
@@ -235,12 +306,14 @@ def verify_run(rundir):
         "restart, then the record carries recovery time and the claim fails",
         bool(stored_b) and stored_ts == guard_step and commit_step > guard_step
         and replay_ship is not None and not redecided
-        and arrived_after_recovery and ship_failed is not None,
+        and arrived_after_recovery and ship_failed is not None
+        and stored_b_state == "verified" and wal_sig_ok,
         {"guard_step": guard_step, "commit_step": commit_step,
          "replay_step": step_of([replay_ship]), "stored_ts": stored_ts,
          "redecided_on_replay": len(redecided),
          "ship_failed": ship_failed is not None, "boots": len(boots),
-         "arrived_after_recovery": arrived_after_recovery},
+         "arrived_after_recovery": arrived_after_recovery,
+         "stored_verdict_state": stored_b_state, "wal_signature_ok": wal_sig_ok},
     )
 
     # The WAL is the independent witness: it must carry the same timestamp the store does.
@@ -275,7 +348,8 @@ def verify_run(rundir):
         "if reconciliation names C-3003 without its descriptor digest, the commitment did not "
         "survive and this is only a name",
         bool(gap_c) and gap_c.get("strength") == "content"
-        and gap_c.get("content") == desc_sha and find_verdict(store, "C-3003") is None,
+        and gap_c.get("content") == desc_sha
+        and find_verdict(store, "C-3003", state="verified") is None,
         {"gap": gap_c, "expected_content": desc_sha},
     )
 
@@ -304,15 +378,25 @@ def verify_run(rundir):
     stored_d = find_verdict(store, "D-4004")
     payload_d = record_payload(stored_d["record"]) if stored_d else None
     signer_ok = bool(payload_d) and verify_signature(payload_d, stored_d["record"].get("signature"))
+    decided_ok = bool(payload_d) and payload_d.get("decided_by") == DECIDED_BY
+    policy_ok = bool(payload_d) and payload_d.get("policy_sha") == POLICY_SHA
+    guard_d_step = step_of(jd.get(("D", "guard_decision")))
+    ts_bound_ok = bool(payload_d) and payload_d.get("decision_ts") == guard_d_step
     check(
         "D", "V",
         "a complete record verifies against the key it carries, and the descriptor digest "
         "recomputes from the action rather than being taken on trust",
         "if the signature does not verify over the stored bytes, or the digest does not "
         "recompute, the record is only a file that says so",
-        signer_ok and payload_d.get("descriptor_sha") == digest(DESC_READ),
+        signer_ok and payload_d.get("descriptor_sha") == digest(DESC_READ)
+        and decided_ok and policy_ok and ts_bound_ok,
         {"descriptor_sha": payload_d.get("descriptor_sha") if payload_d else None,
-         "expected": digest(DESC_READ), "signature_ok": signer_ok},
+         "expected": digest(DESC_READ), "signature_ok": signer_ok,
+         "decided_by": payload_d.get("decided_by") if payload_d else None,
+         "decided_by_ok": decided_ok,
+         "policy_sha_ok": policy_ok,
+         "decision_ts": payload_d.get("decision_ts") if payload_d else None,
+         "guard_step": guard_d_step, "timestamp_bound_to_step": ts_bound_ok},
     )
 
     stored_dp = find_verdict(store, "D-4005")
@@ -327,6 +411,59 @@ def verify_run(rundir):
         stored_dp is not None and not dp_ok,
         {"stored": stored_dp is not None, "verifies": dp_ok,
          "quarantined": stored_dp is not None and not dp_ok},
+    )
+
+    # -- completeness: every named artifact, and proof that each scenario ran ---------------
+    # A missing journal used to be read as "that scenario had nothing to say". It is not:
+    # the artifacts are the evidence, and an absent artifact is an absent result.
+    if unreadable:
+        check(
+            "artifacts-parse", "meta",
+            "every artifact parses, so a damaged file is reported instead of being read as an "
+            "empty one",
+            "if an unreadable journal is treated as a scenario with no events, damage and "
+            "silence look the same to a reader",
+            False,
+            {"unreadable": unreadable},
+        )
+
+    missing_files = [name for name in ARTIFACT_FILES
+                     if not os.path.exists(os.path.join(rundir, name))]
+    manifest_ok = isinstance(manifest, dict) and manifest.get("manifest_version") == 2
+    required = set((manifest or {}).get("required") or []) if isinstance(manifest, dict) else set()
+    listed_missing = [name for name in sorted(required) if not os.path.exists(os.path.join(rundir, name))]
+    check(
+        "artifacts-complete", "meta",
+        "every artifact the run is supposed to produce is present, and the manifest says which "
+        "ones those are",
+        "if a missing artifact passes, an absence of evidence has been read as evidence of the "
+        "expected absence",
+        not missing_files and manifest_ok and not listed_missing and required >= set(ARTIFACT_FILES),
+        {"missing": missing_files, "manifest_version": (manifest or {}).get("manifest_version")
+         if isinstance(manifest, dict) else None,
+         "required_not_present": listed_missing,
+         "required_declared": sorted(required)},
+    )
+
+    chain_problems = {}
+    for filename, kinds in SCENARIO_EVENTS.items():
+        try:
+            events = read_jsonl(os.path.join(rundir, filename)) or []
+        except Unreadable as exc:
+            chain_problems[filename] = ["unreadable: %s" % exc.detail]
+            continue
+        present = [e.get("kind") for e in events]
+        absent = [kind for kind in kinds if kind not in present]
+        if absent:
+            chain_problems[filename] = absent
+    check(
+        "scenarios-ran", "meta",
+        "each scenario left the events that show it ran to the point it is named for, rather "
+        "than leaving a file that could equally be a scenario that did nothing",
+        "if the events are not there, the row is being reported from a summary instead of from "
+        "the thing the summary describes",
+        not chain_problems,
+        {"missing_events": chain_problems},
     )
 
     # -- framing ---------------------------------------------------------------------------
@@ -367,6 +504,23 @@ def verify_run(rundir):
                                for r in [stored_b, stored_d] if r]},
     )
 
+
+# The events each scenario has to leave behind for its row to mean anything. Kinds only:
+# the values are checked by the row itself.
+SCENARIO_EVENTS = {
+    "host-A.jsonl": ("expectation_registered", "proposal", "guard_decision",
+                     "verdict_suppressed"),
+    "host-Ap.jsonl": ("proposal", "guard_decision", "verdict_suppressed"),
+    "host-B.jsonl": ("proposal", "guard_decision", "wal_commit", "ship_failed",
+                     "effect_withheld", "replay_read", "replay_shipped"),
+    "host-C.jsonl": ("id_issued", "commitment_preserved", "proposal", "guard_decision",
+                     "host_dying"),
+    "host-Cp.jsonl": ("id_issued", "proposal", "guard_decision", "host_dying"),
+    "host-Cpp.jsonl": ("local_id_minted", "proposal", "guard_decision", "host_dying"),
+    "host-D.jsonl": ("proposal", "guard_decision", "ship_ok", "effect_committed"),
+    "host-Dp.jsonl": ("proposal", "guard_decision", "signature_stripped", "ship_ok",
+                      "effect_committed"),
+}
 
 ARTIFACT_FILES = ["store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
                   "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
@@ -422,6 +576,12 @@ def report(rundir):
                    "summary": {"class_P": [p_held, len(p_rows)],
                                "class_V": [v_held, len(v_rows)],
                                "failures": [r["id"] for r in failures],
+                               "artifact_state": (
+                                   "unreadable" if any(r["id"] in ("artifacts-readable",
+                                                                   "artifacts-parse")
+                                                       and r["result"] == "fails"
+                                                       for r in RESULTS)
+                                   else "readable"),
                                "timestamp": "source-asserted, preserved through replay, "
                                             "not independently verified"}},
                   fh, indent=2, sort_keys=True)
