@@ -19,6 +19,12 @@
       "strength": "name only"
     },
     {
+      "action_id": "C-9009",
+      "content": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "reason": "proposal committed, no verdict recorded",
+      "strength": "content"
+    },
+    {
       "action_id": "D-4005",
       "content": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
       "reason": "proposal committed, no verdict recorded",

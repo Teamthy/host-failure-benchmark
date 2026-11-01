@@ -8,7 +8,7 @@ now has to be caught by a named check, and the script fails if any of them is
 accepted again.
 
 ```
-python3 audit/regressions.py          # all seven
+python3 audit/regressions.py          # all twelve
 python3 audit/regressions.py f5       # one, with the detail
 ```
 
@@ -22,6 +22,15 @@ python3 audit/regressions.py f5       # one, with the detail
 | f8 | D-4004 actor and policy rewritten and re-signed | D |
 | f13 | host-B.jsonl cut mid-line | artifacts-parse |
 | f14 | D-4004 decision timestamp set to a Unix epoch value, re-signed | D |
+| f7 | the bytes a repair removed deleted from the quarantine file | repair-quarantine |
+| f9 | the conflict record removed, leaving the first verdict as the answer | conflict |
+| f10 | the host's reply check disabled, as it was before the patch | reply-checked |
+| f11 | the store indexing memory before the journal, as it was before | journal-first |
+
+f7 and f9 damage the evidence; f10 and f11 damage the code, because those two
+findings are about the order a process acts in and there is no artifact that
+could carry the bug. Each mode says which kind it is, so a reader can tell
+whether the counterexample is a bad record or a bad program.
 
 Every mode copies the repository into a temporary directory and works there.
 Nothing here modifies the checkout it is run from, and nothing here needs a

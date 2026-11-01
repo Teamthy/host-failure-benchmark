@@ -1,6 +1,8 @@
 {
   "A": {
+    "action_id": "A-1042",
     "commitment": null,
+    "conflict": null,
     "expectation": {
       "action_id": "A-1042",
       "digest": "faac1cd072388c8d1721343432ba8625",
@@ -14,7 +16,9 @@
     "verdict_state": null
   },
   "A'": {
+    "action_id": "A-1043",
     "commitment": null,
+    "conflict": null,
     "expectation": null,
     "issued": null,
     "ok": true,
@@ -22,12 +26,15 @@
     "verdict_state": null
   },
   "B": {
+    "action_id": "B-2001",
     "commitment": null,
+    "conflict": null,
     "expectation": null,
     "issued": null,
     "ok": true,
     "verdict": {
       "action_id": "B-2001",
+      "digest": "3d7e75a0109bc3b6b0b3c9c6b0604a2b",
       "kind": "verdict",
       "record": {
         "action_id": "B-2001",
@@ -39,38 +46,51 @@
         "signature": "b5771cbed9c5858f6e4d82a994be60d93afaf093116a20d78bb80fccd9400a52",
         "verdict": "BLOCK"
       },
-      "state": "verified"
+      "state": "verified",
+      "store_seq": 4
     },
     "verdict_state": "verified"
   },
   "C": {
+    "action_id": "C-3003",
     "commitment": {
       "action_id": "C-3003",
       "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232",
-      "kind": "commitment"
+      "digest": "608742ebff06d1ff758f8dc4df85a23e",
+      "kind": "commitment",
+      "store_seq": 6
     },
+    "conflict": null,
     "expectation": null,
     "issued": {
       "action_id": "C-3003",
-      "kind": "issued"
+      "digest": "07f71a35c27c99e1953d05bc97174676",
+      "kind": "issued",
+      "store_seq": 5
     },
     "ok": true,
     "verdict": null,
     "verdict_state": null
   },
   "C'": {
+    "action_id": "C-3004",
     "commitment": null,
+    "conflict": null,
     "expectation": null,
     "issued": {
       "action_id": "C-3004",
-      "kind": "issued"
+      "digest": "41f638b94a54b33f54c1b2fc845a3f7f",
+      "kind": "issued",
+      "store_seq": 7
     },
     "ok": true,
     "verdict": null,
     "verdict_state": null
   },
   "C''": {
+    "action_id": "C-3005",
     "commitment": null,
+    "conflict": null,
     "expectation": null,
     "issued": null,
     "ok": true,
@@ -78,19 +98,26 @@
     "verdict_state": null
   },
   "D": {
+    "action_id": "D-4004",
     "commitment": {
       "action_id": "D-4004",
       "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
-      "kind": "commitment"
+      "digest": "68ab6fc2a391bb16a7fc189bd8101608",
+      "kind": "commitment",
+      "store_seq": 9
     },
+    "conflict": null,
     "expectation": null,
     "issued": {
       "action_id": "D-4004",
-      "kind": "issued"
+      "digest": "8ad1c1ad0cd1bec545b63d9d414bff5c",
+      "kind": "issued",
+      "store_seq": 8
     },
     "ok": true,
     "verdict": {
       "action_id": "D-4004",
+      "digest": "40ccc09eaa460d73638ca6ea7a6fc340",
       "kind": "verdict",
       "record": {
         "action_id": "D-4004",
@@ -103,24 +130,32 @@
         "signature": "0d8b97722709758ea52a5d58a32d7dca3dcf4544a6d416619e1ef6e9a1c9af4a",
         "verdict": "ALLOW"
       },
-      "state": "verified"
+      "state": "verified",
+      "store_seq": 10
     },
     "verdict_state": "verified"
   },
   "D'": {
+    "action_id": "D-4005",
     "commitment": {
       "action_id": "D-4005",
       "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
-      "kind": "commitment"
+      "digest": "cedbd0255d55d02854948a2ad8ad750a",
+      "kind": "commitment",
+      "store_seq": 12
     },
+    "conflict": null,
     "expectation": null,
     "issued": {
       "action_id": "D-4005",
-      "kind": "issued"
+      "digest": "9ba90686f8f242cc7f2a24db948eda67",
+      "kind": "issued",
+      "store_seq": 11
     },
     "ok": true,
     "verdict": {
       "action_id": "D-4005",
+      "digest": "01377fb54753ecf9e89d0db56f20334c",
       "kind": "verdict",
       "record": {
         "action_id": "D-4005",
@@ -133,7 +168,8 @@
         "signature": null,
         "verdict": "ALLOW"
       },
-      "state": "unverified"
+      "state": "unverified",
+      "store_seq": 13
     },
     "verdict_state": "unverified"
   }

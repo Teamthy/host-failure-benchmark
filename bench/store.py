@@ -18,6 +18,7 @@ restart is a recovery rather than a reset.
 """
 
 import argparse
+import hashlib
 import hmac
 import json
 import os
@@ -27,6 +28,10 @@ import sys
 from common import record_payload, frame, verify as verify_signature
 
 POLICY_SHA = "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1"
+
+
+class JournalError(Exception):
+    """The journal did not take the record. Nothing was persisted, so nothing may be claimed."""
 
 
 class Journal:
@@ -43,18 +48,33 @@ class Journal:
         self.seq = 0
         self.discarded = 0
         self.unframed = 0
+        self.quarantine = None
+        # A failpoint, so a journal that refuses a write can be tested without a full disk.
+        # It refuses before anything is written, which is the case the ordering claim is about.
+        self.failpoint = os.environ.get("HFB_FAILPOINT", "")
 
     def append(self, record):
-        self.seq += 1
         record = dict(record)
-        record["store_seq"] = self.seq
+        record["store_seq"] = self.seq + 1
         record["digest"] = frame(record)
+        if self.failpoint == "verdict" and record.get("kind") == "verdict":
+            raise JournalError("injected: the journal refused a verdict write")
         line = json.dumps(record, sort_keys=True)
         with open(self.path, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(line + "\n")
             fh.flush()
             os.fsync(fh.fileno())
+        # The sequence only advances once the bytes are on disk. A record that was never
+        # written must not consume a number, or a gap in the numbering looks like a lost record.
+        self.seq = record["store_seq"]
         return record
+
+    def _quarantine_name(self):
+        directory = os.path.dirname(self.path) or "."
+        base = os.path.basename(self.path)
+        taken = [name for name in os.listdir(directory)
+                 if name.startswith(base + ".quarantine-") and name.endswith(".bin")]
+        return "%s.quarantine-%d.bin" % (base, len(taken) + 1)
 
     def replay(self):
         if not os.path.exists(self.path):
@@ -84,6 +104,22 @@ class Journal:
                 good = offset
         if good < os.path.getsize(self.path):
             self.discarded = os.path.getsize(self.path) - good
+            # The bytes a repair discards are the only record of what was in flight when the
+            # write stopped. Copying them out costs a file and keeps evidence that a truncation
+            # would otherwise destroy.
+            with open(self.path, "rb") as fh:
+                fh.seek(good)
+                tail = fh.read()
+            name = self._quarantine_name()
+            with open(os.path.join(os.path.dirname(self.path) or ".", name), "wb") as fh:
+                fh.write(tail)
+                fh.flush()
+                os.fsync(fh.fileno())
+            self.quarantine = {
+                "file": name,
+                "bytes": len(tail),
+                "sha256": hashlib.sha256(tail).hexdigest(),
+            }
             with open(self.path, "r+b") as fh:
                 fh.truncate(good)
                 fh.flush()
@@ -102,13 +138,15 @@ class Store:
         self.expectations = {}
         self.verdicts = {}
         self.verdict_state = {}
+        self.conflicts = {}
         self.load()
 
     def load(self):
         for rec in self.journal.replay():
-            self.apply(rec, persist=False)
+            self.index(rec)
 
-    def apply(self, rec, persist=True):
+    def index(self, rec):
+        """Update memory from a record that is already on disk. Memory is never ahead of it."""
         kind = rec.get("kind")
         aid = rec.get("action_id")
         if kind == "issued":
@@ -118,14 +156,32 @@ class Store:
         elif kind == "expectation":
             self.expectations[aid] = rec
         elif kind == "verdict":
-            self.verdicts[aid] = rec
-            # The state is a property of the record, not a claim it makes about itself:
-            # a record whose binding does not verify is stored, kept visible, and never
-            # allowed to resolve a gap.
-            self.verdict_state[aid] = rec.get("state") or self.state_of(rec.get("record"))
-        if persist:
-            return self.journal.append(rec)
+            first = self.verdicts.get(aid)
+            state = rec.get("state") or self.state_of(rec.get("record"))
+            if first is None:
+                self.verdicts[aid] = rec
+                # The state is a property of the record, not a claim it makes about itself:
+                # a record whose binding does not verify is stored, kept visible, and never
+                # allowed to resolve a gap.
+                self.verdict_state[aid] = state
+            elif first.get("record") != rec.get("record"):
+                # Two different verdicts for one action. Whichever one a reader happens to
+                # load first must not become the answer, so the state says so and neither
+                # record closes the gap.
+                self.verdict_state[aid] = "conflicted"
+            elif state != "verified":
+                self.verdict_state[aid] = state
+        elif kind == "conflict":
+            self.conflicts[aid] = rec
+            self.verdict_state[aid] = "conflicted"
         return rec
+
+    def record(self, rec):
+        """Journal first, memory second. The order is the claim: nothing is known here that
+        a restart could not also know."""
+        stored = self.journal.append(rec)
+        self.index(stored)
+        return stored
 
     @staticmethod
     def state_of(record):
@@ -145,43 +201,65 @@ class Store:
     def cmd_issue(self, req):
         aid = req["action_id"]
         if aid in self.issued:
-            return {"ok": True, "duplicate": True}
-        self.apply({"kind": "issued", "action_id": aid})
-        return {"ok": True}
+            return {"ok": True, "duplicate": True, "action_id": aid}
+        self.record({"kind": "issued", "action_id": aid})
+        return {"ok": True, "action_id": aid}
 
     def cmd_commit(self, req):
         aid = req["action_id"]
         if aid not in self.issued:
-            return {"ok": False, "error": "unknown action id: a commitment needs an issued id"}
-        self.apply({"kind": "commitment", "action_id": aid, "descriptor_sha": req["descriptor_sha"]})
-        return {"ok": True}
+            return {"ok": False, "action_id": aid,
+                    "error": "unknown action id: a commitment needs an issued id"}
+        self.record({"kind": "commitment", "action_id": aid,
+                     "descriptor_sha": req["descriptor_sha"]})
+        return {"ok": True, "action_id": aid}
 
     def cmd_expect(self, req):
         aid = req["action_id"]
-        self.apply({"kind": "expectation", "action_id": aid, "policy_sha": req.get("policy_sha")})
-        return {"ok": True}
+        # An expectation names an action the host has not necessarily issued yet. It is a
+        # promise to look for a decision, so it is allowed to arrive before the id does.
+        self.record({"kind": "expectation", "action_id": aid,
+                     "policy_sha": req.get("policy_sha")})
+        return {"ok": True, "action_id": aid}
 
     def cmd_verdict(self, req):
         rec = req.get("record")
         if not isinstance(rec, dict) or not isinstance(rec.get("action_id"), str):
             # A verdict with no action id cannot be stored against anything.
-            return {"ok": False, "stored": False, "error": "record needs an action_id"}
+            return {"ok": False, "stored": False, "action_id": None,
+                    "error": "record needs an action_id"}
         aid = rec["action_id"]
         state = self.state_of(rec)
-        stored = self.apply({"kind": "verdict", "action_id": aid, "record": rec,
-                             "state": state})
-        return {"ok": True, "stored": True, "state": state,
-                "store_seq": stored.get("store_seq")}
+        first = self.verdicts.get(aid)
+        stored = self.record({"kind": "verdict", "action_id": aid, "record": rec,
+                              "state": state})
+        if first is not None and first.get("record") != rec:
+            conflict = self.record({
+                "kind": "conflict",
+                "action_id": aid,
+                "first_seq": first.get("store_seq"),
+                "second_seq": stored.get("store_seq"),
+                "first_verdict": (first.get("record") or {}).get("verdict"),
+                "second_verdict": rec.get("verdict"),
+                "rule": "two different verdicts for one action id: neither resolves the gap",
+            })
+            return {"ok": True, "stored": True, "state": "conflicted", "conflict": True,
+                    "action_id": aid, "store_seq": stored.get("store_seq"),
+                    "conflict_seq": conflict.get("store_seq")}
+        return {"ok": True, "stored": True, "state": self.verdict_state.get(aid, state),
+                "action_id": aid, "store_seq": stored.get("store_seq")}
 
     def cmd_lookup(self, req):
         aid = req["action_id"]
         return {
             "ok": True,
+            "action_id": aid,
             "issued": self.issued.get(aid),
             "commitment": self.commitments.get(aid),
             "expectation": self.expectations.get(aid),
             "verdict": self.verdicts.get(aid),
             "verdict_state": self.verdict_state.get(aid),
+            "conflict": self.conflicts.get(aid),
         }
 
     def cmd_reconcile(self, req):
@@ -222,6 +300,8 @@ class Store:
             "commitments": sorted(self.commitments),
             "expectations": sorted(self.expectations),
             "verdicts": sorted(self.verdicts),
+            "conflicted_verdicts": sorted(aid for aid, state in self.verdict_state.items()
+                                          if state == "conflicted"),
             "unverified_verdicts": sorted(aid for aid, state in self.verdict_state.items()
                                           if state != "verified"),
             "gaps": self.cmd_reconcile({})["gaps"],
@@ -240,7 +320,11 @@ class Store:
         }
         if cmd not in table:
             return {"ok": False, "error": "unknown command: %r" % cmd}
-        return table[cmd](req)
+        try:
+            return table[cmd](req)
+        except JournalError as exc:
+            # The write did not happen, so nothing is claimed and memory is untouched.
+            return {"ok": False, "durable": False, "error": str(exc)}
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -273,15 +357,21 @@ def main(argv):
     args = ap.parse_args(argv[1:])
 
     store = Store(Journal(args.journal))
+    # How many records the replay recovered. Named for what it counts: a sequence number here
+    # used to be off by one, which made a repair look like it lost one more record than it did.
+    replayed = store.journal.seq
     if store.journal.discarded:
         # Say what was lost instead of silently presenting a shorter history as the whole one.
         store.journal.append({"kind": "repair",
                               "discarded_bytes": store.journal.discarded,
-                              "replayed_seq": store.journal.seq - 1})
+                              "replayed_records": replayed,
+                              "quarantine": (store.journal.quarantine or {}).get("file"),
+                              "quarantine_bytes": (store.journal.quarantine or {}).get("bytes"),
+                              "quarantine_sha256": (store.journal.quarantine or {}).get("sha256")})
         print("journal repaired: %d trailing bytes discarded" % store.journal.discarded,
               flush=True)
     # A boot marker, so a reader can tell what arrived before a recovery and what arrived after.
-    store.journal.append({"kind": "boot", "replayed_seq": store.journal.seq})
+    store.journal.append({"kind": "boot", "replayed_records": replayed})
     srv = Server(("127.0.0.1", 0), Handler)
     srv.store = store
     port = srv.server_address[1]

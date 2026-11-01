@@ -5,7 +5,7 @@ Every mode here beat the verifier at commit 25cd57f. Each one now has to be
 caught by a named check, or this script fails. That is the point: a fix
 without a counterexample that can fail again is a fix waiting to regress.
 
-    python3 audit/regressions.py            # all seven, exit 0 only if all caught
+    python3 audit/regressions.py            # all twelve, exit 0 only if all caught
     python3 audit/regressions.py f1         # one, with the evidence printed
 
 Each mode copies the repository into a temporary directory and works there,
@@ -52,7 +52,60 @@ MODES = {
             "after-run", {"artifacts-parse"}, set()),
     "f14": ("D-4004 decision_ts replaced with a Unix epoch value, re-signed, reframed",
             "after-run", {"D"}, set()),
+    # The P1 counterexamples. Two of them are mutations of the evidence and two are mutations
+    # of the code, because F7 and F9 are defects in what the artifacts contain while F10 and
+    # F11 are defects in the order the processes act in. Mutating the artifact cannot show a
+    # bug that lives in the code, and pretending otherwise would test the mutation instead.
+    "f7": ("the bytes a repair removed deleted, so recovery destroys what it recovered",
+           "after-run", {"repair-quarantine"}, set()),
+    "f9": ("the conflict record removed, leaving the first verdict to be read as the answer",
+           "after-run", {"conflict"}, set()),
+    "f10": ("the host accepting any well-formed reply, as it did before the patch",
+            "before-run", {"reply-checked"}, set()),
+    "f11": ("the store indexing memory before the journal, as it did before the patch",
+            "before-run", {"journal-first"}, set()),
 }
+
+
+def apply_before_run(tree: str, mode: str) -> None:
+    """Undo a P1 fix in the copy, so the check that claims to catch it has to catch it.
+
+    These two are orderings inside a process. There is no artifact to damage: the defect is
+    that the process acts in the wrong order, so the only counterexample is the wrong order.
+    """
+    if mode == "f11":
+        path = os.path.join(tree, "bench", "store.py")
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        before = """    def record(self, rec):
+        \"\"\"Journal first, memory second. The order is the claim: nothing is known here that
+        a restart could not also know.\"\"\"
+        stored = self.journal.append(rec)
+        self.index(stored)
+        return stored"""
+        after = """    def record(self, rec):
+        # The pre-patch order: memory first, journal second.
+        self.index(rec)
+        return self.journal.append(rec)"""
+        if before not in source:
+            raise SystemExit("f11: could not find the journal-then-memory ordering")
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(source.replace(before, after, 1))
+        return
+
+    if mode == "f10":
+        path = os.path.join(tree, "bench", "host.py")
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        before = "            if action_id is not None and resp.get(\"action_id\") != action_id:"
+        after = "            if False and action_id is not None and resp.get(\"action_id\") != action_id:"
+        if before not in source:
+            raise SystemExit("f10: could not find the reply check")
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(source.replace(before, after, 1))
+        return
+
+    raise SystemExit("no before-run change for %r" % mode)
 
 TAMPER_HOOK = '''
 
@@ -97,7 +150,11 @@ def patch_driver(repo: str) -> None:
 
 EXPECTED_ARTIFACTS = ("store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
                       "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
-                      "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "manifest.json")
+                      "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "manifest.json",
+                      "probe-durability/journal.jsonl", "probe-durability/result.json",
+                      "probe-repair/journal.jsonl",
+                      "probe-repair/journal.jsonl.quarantine-1.bin",
+                      "probe-reply/host-E.jsonl")
 
 
 def run_suite(repo: str, env: dict | None = None, attempts: int = 3) -> str:
@@ -220,6 +277,25 @@ def apply_after_run(repo: str, rundir: str, mode: str) -> None:
             os.remove(os.path.join(rundir, name))
         return
 
+    if mode == "f7":
+        # Repair kept the bytes; delete them, and the check that says it does must fail.
+        for name in os.listdir(os.path.join(rundir, "probe-repair")):
+            if ".quarantine-" in name:
+                os.remove(os.path.join(rundir, "probe-repair", name))
+        return
+
+    if mode == "f9":
+        # Remove the conflict record, as a store that resolved duplicates silently would not
+        # have written one. The two verdicts stay, so the ambiguity is still in the journal.
+        path = os.path.join(rundir, "store.jsonl")
+        with open(path, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        kept = [row for row in rows if row.get("kind") != "conflict"]
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            for row in kept:
+                fh.write(json.dumps(row, sort_keys=True) + "\n")
+        return
+
     if mode == "f13":
         path = os.path.join(rundir, "host-B.jsonl")
         with open(path, "rb") as fh:
@@ -273,6 +349,8 @@ def run_mode(repo: str, mode: str) -> tuple[bool, str]:
         if MODES[mode][1] == "mid-run":
             patch_driver(tree)
             env["REGRESSION_MODE"] = mode
+        elif MODES[mode][1] == "before-run":
+            apply_before_run(tree, mode)
         rundir = run_suite(tree, env)
         detail = ""
         if MODES[mode][1] == "after-run":

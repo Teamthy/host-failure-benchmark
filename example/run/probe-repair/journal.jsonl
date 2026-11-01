@@ -1,0 +1,4 @@
+{"action_id": "R-7001", "digest": "727bb8f0ed38c58bd6b5ef1db1609d3c", "kind": "issued", "store_seq": 1}
+{"action_id": "R-7002", "digest": "690e451fdfa5227358c86a91e94689df", "kind": "issued", "store_seq": 2}
+{"digest": "c34452f914fd353bd9aa750552a9cb67", "discarded_bytes": 39, "kind": "repair", "quarantine": "journal.jsonl.quarantine-1.bin", "quarantine_bytes": 39, "quarantine_sha256": "049af3c3be831fcbc3996a5ae4a3043ae9afec40cb772cc239eb211e5a6057b1", "replayed_records": 2, "store_seq": 3}
+{"digest": "7aeda9b3f034442adb2206ededd3516b", "kind": "boot", "replayed_records": 2, "store_seq": 4}

@@ -83,11 +83,11 @@ Trusted time. The clock is a counter, deliberately, and the decision time is sou
 
 Operational practice: rotation, retention, immutable storage, access control, privilege separation. The two processes run as the same user on the same disk. This is a demonstration of a discipline, not a deployment of one.
 
-It is also not tested the way a production component would be: eight scenarios, one machine, no fuzzing, no continuous integration. Which is how the torn-journal case above went unnoticed until it was looked for.
+It is also not tested the way a production component would be: eight scenarios and three probes, one machine, no fuzzing, no continuous integration. Which is how the torn-journal case above went unnoticed until it was looked for.
 
 ## Reproducing it
 
-Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run nine ways and requires that each kind of damage be caught by the check that claims to catch it.
+Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run ten ways and requires that each kind of damage be caught by the check that claims to catch it.
 
 Every check is written as a claim paired with the counterclaim that would refute it. When one fails, the output names the thing that refused it.
 
@@ -121,13 +121,34 @@ printed. The following changed in response, each with a counterexample in
 - The verifier no longer raises. An unreadable artifact produces a report with
   an explicit unreadable state, and the report is written either way.
 
-Four things the review found and this patch does not fix, in the order they
-matter: memory is still updated before the journal append in one path;
-truncation on repair still discards bytes without keeping the original
-journal; duplicate verdicts still resolve to whichever record a component
-happens to read; and the host still does not validate the store's reply before
-logging an effect. Those are the P1 items, and the note will say so until they
-are done.
+The four P1 items are done in the same patch, each with a counterexample that
+fails without the fix:
+
+- The store journals a record before it indexes it. A journal that refuses a
+  write leaves nothing behind: not in memory, not after a restart. The
+  counterexample injects that refusal and requires the store to answer that it
+  could not persist, rather than answering from memory and losing the record on
+  the next restart.
+- A repair that shortens a journal copies the bytes it removes into a
+  quarantine file and records that file's length and digest in the repair
+  record. The counterexample deletes the quarantine file and requires
+  verification to refuse the run.
+- Two verdicts that disagree are recorded as a conflict naming both sequence
+  numbers, and the action stays unresolved. Previously whichever record a
+  component read first became the answer. The counterexample removes the
+  conflict record.
+- The host reads a reply as an answer to the request it made: well formed,
+  successful, and naming the action that was asked about. A store that confirms
+  a different action is refused and no effect is logged. The counterexample
+  restores the pre-patch behaviour, in which any well-formed reply counted as
+  consent.
+
+What is still open after this patch: identifiers are chosen by the caller and
+registered, not minted by the store, which is a weaker claim and is written as
+one; an idle connection can still hold the store; the verifier still imports
+the encoder it checks, so the correlated-oracle problem stays until there is a
+second encoder; and there is no CI matrix, so the cross-platform claim is two
+runs compared by hand rather than a pipeline.
 
 ## Citation
 

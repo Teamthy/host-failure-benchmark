@@ -1,0 +1,4 @@
+{"digest": "39c7a2f6eb8675b8f4741f58e29149ce", "kind": "boot", "replayed_records": 0, "store_seq": 1}
+{"action_id": "P-9001", "digest": "2bdd822e4b8847e89dcb75125d808679", "kind": "issued", "store_seq": 2}
+{"action_id": "P-9001", "digest": "ea051460188364cc899ca6db294f6305", "kind": "expectation", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "store_seq": 3}
+{"digest": "600df226cc224202dafde6cee2dc01e7", "kind": "boot", "replayed_records": 3, "store_seq": 4}

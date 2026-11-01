@@ -1,0 +1,4 @@
+{"action_id": "E-6006", "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "kind": "proposal", "phase": "PROPOSAL", "run": "initial", "scenario": "E", "step": 1}
+{"action_id": "E-6006", "kind": "guard_decision", "phase": "GUARD_DECISION", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": null, "run": "initial", "scenario": "E", "step": 2, "verdict": "ALLOW"}
+{"action_id": "E-6006", "command": "verdict", "kind": "reply_rejected", "phase": "REPLY_REJECTED", "problems": ["reply names 'S-0000', the request was 'E-6006'"], "run": "initial", "scenario": "E", "step": 3}
+{"action_id": "E-6006", "kind": "effect_withheld", "phase": "EFFECT_WITHHELD", "reason": "store reply rejected", "run": "initial", "scenario": "E", "step": 4}

@@ -11,6 +11,7 @@ lookups. Nothing here reads a pass flag, because nothing writes one.
 Exit code is 0 only if every check passes. A missing artifact is a failure, not a skip.
 """
 
+import hashlib
 import hmac
 import json
 import os
@@ -130,7 +131,8 @@ def recompute_gaps(store_records):
     If this function and the store disagree, the store's own summary is the thing that is
     wrong, and the reader has to see that rather than a comfortable pass.
     """
-    issued, commitments, expectations, verdicts = set(), {}, set(), set()
+    issued, commitments, expectations = set(), {}, set()
+    verdict_rows = {}
     for rec in store_records:
         kind, aid = rec.get("kind"), rec.get("action_id")
         if kind == "issued":
@@ -140,10 +142,18 @@ def recompute_gaps(store_records):
         elif kind == "expectation":
             expectations.add(aid)
         elif kind == "verdict":
-            # A record that exists is not a decision that is known. Only a verdict whose
-            # binding verifies closes a gap, in the verifier as well as in the store.
-            if verdict_state(rec) == "verified":
-                verdicts.add(aid)
+            verdict_rows.setdefault(aid, []).append(rec)
+
+    # A record that exists is not a decision that is known. Only a verdict whose binding
+    # verifies closes a gap, and two verdicts that disagree close nothing: whichever one a
+    # reader happened to load first must not become the answer.
+    verdicts = set()
+    for aid, rows in verdict_rows.items():
+        first = rows[0]
+        if any(row.get("record") != first.get("record") for row in rows[1:]):
+            continue
+        if verdict_state(first) == "verified":
+            verdicts.add(aid)
 
     gaps = []
     for aid in sorted(issued | expectations):
@@ -413,6 +423,110 @@ def _verify_run(rundir):
          "quarantined": stored_dp is not None and not dp_ok},
     )
 
+    # -- F11: the journal refuses a write, so nothing may be known ------------------------
+    durability = read_json(os.path.join(rundir, "probe-durability", "result.json"))
+    probe_store = read_jsonl(os.path.join(rundir, "probe-durability", "journal.jsonl"))
+    probe_id = (durability or {}).get("action_id")
+    probe_verdict_rows = [r for r in (probe_store or [])
+                          if r.get("kind") == "verdict" and r.get("action_id") == probe_id]
+    verdict_reply = (durability or {}).get("verdict") or {}
+    live_lookup = (durability or {}).get("lookup_same_process") or {}
+    restart_lookup = (durability or {}).get("lookup_after_restart") or {}
+    check(
+        "journal-first", "P",
+        "a store that cannot journal a verdict does not report it as known, in memory or "
+        "after a restart, so an acknowledged decision is always one a recovery could also find",
+        "if the store answers from memory while the journal is behind, it has reported a "
+        "decision it could not keep and every count taken from it during that window is wrong",
+        bool(durability) and verdict_reply.get("ok") is False
+        and live_lookup.get("verdict") is None
+        and restart_lookup.get("verdict") is None
+        and not probe_verdict_rows,
+        {"verdict_reply": verdict_reply.get("ok"),
+         "durable_flag": verdict_reply.get("durable"),
+         "error": verdict_reply.get("error"),
+         "verdict_in_memory": live_lookup.get("verdict") is not None,
+         "verdict_after_restart": restart_lookup.get("verdict") is not None,
+         "verdict_records_in_probe_journal": len(probe_verdict_rows)},
+    )
+
+    # -- F7: repair keeps the bytes it discards -------------------------------------------
+    repair_journal = read_jsonl(os.path.join(rundir, "probe-repair", "journal.jsonl")) or []
+    repairs = [r for r in repair_journal if r.get("kind") == "repair"]
+    repair = repairs[0] if len(repairs) == 1 else None
+    quarantine_path = os.path.join(rundir, "probe-repair", (repair or {}).get("quarantine") or "")
+    quarantine_bytes = None
+    quarantine_sha = None
+    if repair and os.path.exists(quarantine_path):
+        with open(quarantine_path, "rb") as fh:
+            tail = fh.read()
+        quarantine_bytes = len(tail)
+        quarantine_sha = hashlib.sha256(tail).hexdigest()
+    check(
+        "repair-quarantine", "P",
+        "a repair that shortens a journal keeps the bytes it removed, so what was in flight "
+        "when the write stopped survives the truncation",
+        "if repair drops the tail, the only record of the interrupted write is destroyed by "
+        "the recovery, and a crash and a silent deletion become the same event afterwards",
+        bool(repair) and (repair.get("discarded_bytes") or 0) > 0
+        and quarantine_bytes == repair.get("quarantine_bytes") == repair.get("discarded_bytes")
+        and quarantine_sha == repair.get("quarantine_sha256"),
+        {"repair_records": len(repairs),
+         "discarded_bytes": (repair or {}).get("discarded_bytes"),
+         "quarantine": (repair or {}).get("quarantine"),
+         "quarantine_exists": os.path.exists(quarantine_path),
+         "quarantine_bytes": quarantine_bytes,
+         "digest_matches": quarantine_sha == (repair or {}).get("quarantine_sha256")},
+    )
+
+    # -- F9: two verdicts for one action ---------------------------------------------------
+    conflict_id = "C-9009"
+    conflict_verdicts = [r for r in store
+                         if r.get("kind") == "verdict" and r.get("action_id") == conflict_id]
+    conflict_records = [r for r in store
+                        if r.get("kind") == "conflict" and r.get("action_id") == conflict_id]
+    conflicted_state = (read_json(os.path.join(rundir, "store-state.json")) or {})
+    named_conflict = conflict_records[0] if len(conflict_records) == 1 else None
+    check(
+        "conflict", "P",
+        "two verdicts that disagree are recorded as a conflict with both sequence numbers, and "
+        "the action stays unresolved instead of resolving to whichever record was read first",
+        "if a duplicate verdict silently becomes the answer, the record that loses is invisible "
+        "and the result depends on file order rather than on evidence",
+        len(conflict_verdicts) == 2 and named_conflict is not None
+        and {named_conflict.get("first_seq"), named_conflict.get("second_seq")}
+        == {r.get("store_seq") for r in conflict_verdicts}
+        and conflict_id in (conflicted_state.get("conflicted_verdicts") or [])
+        and find_gap(gaps, conflict_id) is not None,
+        {"verdict_records": [r.get("store_seq") for r in conflict_verdicts],
+         "conflict_record": named_conflict.get("store_seq") if named_conflict else None,
+         "named_in_state": conflict_id in (conflicted_state.get("conflicted_verdicts") or []),
+         "still_a_gap": find_gap(gaps, conflict_id) is not None},
+    )
+
+    # -- F10: a reply is not consent -------------------------------------------------------
+    reply_events = []
+    try:
+        reply_events = read_jsonl(os.path.join(rundir, "probe-reply", "host-E.jsonl")) or []
+    except Unreadable:
+        reply_events = []
+    rejected = [e for e in reply_events if e.get("kind") == "reply_rejected"]
+    committed = [e for e in reply_events if e.get("kind") == "effect_committed"]
+    wrong_id_named = any("S-" in problem for e in rejected
+                         for problem in (e.get("problems") or []))
+    check(
+        "reply-checked", "P",
+        "the host logs an effect only when the store's reply names the action that was asked "
+        "about, so a well-formed answer to a different question is refused",
+        "if any well-formed reply counts as consent, a store that answers about the wrong "
+        "action id can authorise an effect the host was never granted",
+        bool(rejected) and not committed and wrong_id_named
+        and any(e.get("command") == "verdict" for e in rejected),
+        {"reply_rejected": len(rejected), "effect_committed": len(committed),
+         "mismatch_named": wrong_id_named,
+         "problems": [p for e in rejected for p in (e.get("problems") or [])]},
+    )
+
     # -- completeness: every named artifact, and proof that each scenario ran ---------------
     # A missing journal used to be read as "that scenario had nothing to say". It is not:
     # the artifacts are the evidence, and an absent artifact is an absent result.
@@ -483,7 +597,8 @@ def _verify_run(rundir):
 
     # -- the honesty checks ----------------------------------------------------------------
     crlf = [name for name in ARTIFACT_FILES
-            if (read_bytes(rundir, name) or b"").find(b"\r\n") >= 0]
+            if not name.endswith(".bin")
+            and (read_bytes(rundir, name) or b"").find(b"\r\n") >= 0]
     check(
         "line-endings", "meta",
         "every artifact uses one newline convention, so a run on Windows is the same bytes as a "
@@ -520,12 +635,18 @@ SCENARIO_EVENTS = {
     "host-D.jsonl": ("proposal", "guard_decision", "ship_ok", "effect_committed"),
     "host-Dp.jsonl": ("proposal", "guard_decision", "signature_stripped", "ship_ok",
                       "effect_committed"),
+    "probe-reply/host-E.jsonl": ("proposal", "guard_decision", "reply_rejected",
+                                 "effect_withheld"),
 }
+
+PROBE_FILES = ["probe-durability/journal.jsonl", "probe-durability/result.json",
+               "probe-repair/journal.jsonl", "probe-repair/journal.jsonl.quarantine-1.bin",
+               "probe-reply/host-E.jsonl"]
 
 ARTIFACT_FILES = ["store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
                   "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
                   "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "store-state.json",
-                  "lookups.json"]
+                  "lookups.json"] + PROBE_FILES
 
 
 def compare_determinism(first, second):

@@ -1,0 +1,79 @@
+{
+  "action_id": "P-9001",
+  "expect": {
+    "action_id": "P-9001",
+    "ok": true
+  },
+  "issue": {
+    "action_id": "P-9001",
+    "ok": true
+  },
+  "lookup_after_restart": {
+    "action_id": "P-9001",
+    "commitment": null,
+    "conflict": null,
+    "expectation": {
+      "action_id": "P-9001",
+      "digest": "ea051460188364cc899ca6db294f6305",
+      "kind": "expectation",
+      "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1",
+      "store_seq": 3
+    },
+    "issued": {
+      "action_id": "P-9001",
+      "digest": "2bdd822e4b8847e89dcb75125d808679",
+      "kind": "issued",
+      "store_seq": 2
+    },
+    "ok": true,
+    "verdict": null,
+    "verdict_state": null
+  },
+  "lookup_same_process": {
+    "action_id": "P-9001",
+    "commitment": null,
+    "conflict": null,
+    "expectation": {
+      "action_id": "P-9001",
+      "digest": "ea051460188364cc899ca6db294f6305",
+      "kind": "expectation",
+      "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1",
+      "store_seq": 3
+    },
+    "issued": {
+      "action_id": "P-9001",
+      "digest": "2bdd822e4b8847e89dcb75125d808679",
+      "kind": "issued",
+      "store_seq": 2
+    },
+    "ok": true,
+    "verdict": null,
+    "verdict_state": null
+  },
+  "state_after_restart": {
+    "commitments": [],
+    "conflicted_verdicts": [],
+    "expectations": [
+      "P-9001"
+    ],
+    "gaps": [
+      {
+        "action_id": "P-9001",
+        "content": null,
+        "reason": "expected verdict, none recorded",
+        "strength": "name only"
+      }
+    ],
+    "issued": [
+      "P-9001"
+    ],
+    "ok": true,
+    "unverified_verdicts": [],
+    "verdicts": []
+  },
+  "verdict": {
+    "durable": false,
+    "error": "injected: the journal refused a verdict write",
+    "ok": false
+  }
+}

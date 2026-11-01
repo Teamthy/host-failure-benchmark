@@ -1,0 +1,1755 @@
+diff --git a/README.md b/README.md
+index 34256e9..829f236 100644
+--- a/README.md
++++ b/README.md
+@@ -12,7 +12,7 @@ Four failure rows, each with a test. Row M1 is a decision made and never emitted
+ 
+ The suite reports two classes separately, because they fail for different reasons and a single score would hide that.
+ 
+-Class P is persistence and recovery: whether the evidence outlives the process that made it. Eight checks. Six further checks cover completeness, framing, line endings and the counter clock; a missing artifact or a journal that does not parse is a failure, not a shorter history.
++Class P is persistence and recovery: whether the evidence outlives the process that made it. Twelve checks. Six further checks cover completeness, framing, line endings and the counter clock; a missing artifact or a journal that does not parse is a failure, not a shorter history.
+ 
+ Class V is verification: whether a record that survived is the record it says it is, from who it says, under the policy version it names. This claim rests on a key derived from a fixed seed written in the source, which shows the binding is internally consistent and is not evidence of production key security or of anyone's institutional trust. Two checks.
+ 
+@@ -49,12 +49,29 @@ On any other system the same three commands with `artifacts/run-...` in place of
+ 
+ `run.py` prints the directory it wrote. `verify.py` takes that directory and re-derives every assertion from the raw files inside it: the store journal, the write-ahead log, the per-scenario host journals. It does not read a pass flag, because nothing writes one.
+ 
+-`challenge.py` takes a finished run and damages it nine ways, then requires that the check claiming to catch each kind of damage does catch it. A checker that cannot fail is decoration.
++`challenge.py` takes a finished run and damages it ten ways, then requires that the check claiming to catch each kind of damage does catch it. A checker that cannot fail is decoration.
+ 
+ `audit/regressions.py` is the same idea with harder mutations, one per finding in the November 2026 review. Each of them passed verification before that review and has to be caught now:
+ 
+ Whole thing runs in seconds, well inside the thirty minutes the spec allowed.
+ 
++## Three probes, and why they are separate
++
++Four of the properties here are about what a component does when the thing it depends on
++misbehaves, and a scenario inside the normal run cannot show them without corrupting the record
++the rest of the suite is built on. So `run.py` runs three short probes and keeps them in their own
++directories, each with its own journal where it needs one:
++
++| probe | what it forces | what the verifier requires |
++| --- | --- | --- |
++| `probe-durability` | the store's journal refuses a verdict write | the verdict is not reported as known, in memory or after a restart |
++| `probe-repair` | a journal that stops mid-record | the repair names a file holding the discarded bytes, and its digest matches |
++| `probe-reply` | a store that answers, well formed, about a different action | the host refuses the reply and logs no effect |
++
++The third one is the only place in the suite where a process other than the two under test sends
++bytes, and it is `bench/stub_store.py`: six lines of behaviour, no state, no replay, never used
++for anything else.
++
+ ## A finished run is included
+ 
+ `example/run/` is one complete run, exactly as the programs wrote it, with one exception: `port.txt` is left out, because the port changes between runs and every other file in the directory is byte-identical. You can check the checks without running anything:
+@@ -74,7 +91,7 @@ Every check in `verify.py` is written as a claim paired with the counterclaim th
+ 
+ ## Standard practice, honestly
+ 
+-Durability before acknowledgement, replay over reset, identifiers registered by a separate store, reconciliation against a prior expectation, canonical encoding, per-record framing, and a verifier that reads no pass flag: all implemented. The identifier is chosen by the caller and the store records the registration, which is a weaker thing than minting an id and is named that way here since the review of 1 November. Tamper evidence against someone holding the source, managed keys, trusted time, and operational controls: not implemented, and the note says which pattern each would need. The section in `TECHNICAL-NOTE.md` is the long version.
++Durability before acknowledgement, replay over reset, journal before memory in the store, repair that keeps the bytes it removes, a named conflict instead of a silent winner when two verdicts disagree, a reply checked against the request it answers, identifiers registered by a separate store, reconciliation against a prior expectation, canonical encoding, per-record framing, and a verifier that reads no pass flag: all implemented. The identifier is chosen by the caller and the store records the registration, which is a weaker thing than minting an id and is named that way here since the review of 1 November. Tamper evidence against someone holding the source, managed keys, trusted time, and operational controls: not implemented, and the note says which pattern each would need. The section in `TECHNICAL-NOTE.md` is the long version.
+ 
+ ## The two distinctions this suite keeps
+ 
+@@ -88,6 +105,7 @@ A signature plus a policy hash proves integrity and provenance. It does not prov
+ bench/common.py     fixed clock, canonical encoding, signature
+ bench/store.py      audit store process, append-only journal, replays on start
+ bench/host.py       the host process, one scenario per run, killable
++bench/stub_store.py a fixture that answers every request and confirms the wrong action
+ run.py              runs every scenario, asserts nothing
+ verify.py           reads artifacts, decides, writes verify-report.json
+ challenge.py        damages a run and confirms the damage is caught
+diff --git a/TECHNICAL-NOTE.md b/TECHNICAL-NOTE.md
+index 88b5339..21d48d2 100644
+--- a/TECHNICAL-NOTE.md
++++ b/TECHNICAL-NOTE.md
+@@ -83,11 +83,11 @@ Trusted time. The clock is a counter, deliberately, and the decision time is sou
+ 
+ Operational practice: rotation, retention, immutable storage, access control, privilege separation. The two processes run as the same user on the same disk. This is a demonstration of a discipline, not a deployment of one.
+ 
+-It is also not tested the way a production component would be: eight scenarios, one machine, no fuzzing, no continuous integration. Which is how the torn-journal case above went unnoticed until it was looked for.
++It is also not tested the way a production component would be: eight scenarios and three probes, one machine, no fuzzing, no continuous integration. Which is how the torn-journal case above went unnoticed until it was looked for.
+ 
+ ## Reproducing it
+ 
+-Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run nine ways and requires that each kind of damage be caught by the check that claims to catch it.
++Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run ten ways and requires that each kind of damage be caught by the check that claims to catch it.
+ 
+ Every check is written as a claim paired with the counterclaim that would refute it. When one fails, the output names the thing that refused it.
+ 
+@@ -121,13 +121,34 @@ printed. The following changed in response, each with a counterexample in
+ - The verifier no longer raises. An unreadable artifact produces a report with
+   an explicit unreadable state, and the report is written either way.
+ 
+-Four things the review found and this patch does not fix, in the order they
+-matter: memory is still updated before the journal append in one path;
+-truncation on repair still discards bytes without keeping the original
+-journal; duplicate verdicts still resolve to whichever record a component
+-happens to read; and the host still does not validate the store's reply before
+-logging an effect. Those are the P1 items, and the note will say so until they
+-are done.
++The four P1 items are done in the same patch, each with a counterexample that
++fails without the fix:
++
++- The store journals a record before it indexes it. A journal that refuses a
++  write leaves nothing behind: not in memory, not after a restart. The
++  counterexample injects that refusal and requires the store to answer that it
++  could not persist, rather than answering from memory and losing the record on
++  the next restart.
++- A repair that shortens a journal copies the bytes it removes into a
++  quarantine file and records that file's length and digest in the repair
++  record. The counterexample deletes the quarantine file and requires
++  verification to refuse the run.
++- Two verdicts that disagree are recorded as a conflict naming both sequence
++  numbers, and the action stays unresolved. Previously whichever record a
++  component read first became the answer. The counterexample removes the
++  conflict record.
++- The host reads a reply as an answer to the request it made: well formed,
++  successful, and naming the action that was asked about. A store that confirms
++  a different action is refused and no effect is logged. The counterexample
++  restores the pre-patch behaviour, in which any well-formed reply counted as
++  consent.
++
++What is still open after this patch: identifiers are chosen by the caller and
++registered, not minted by the store, which is a weaker claim and is written as
++one; an idle connection can still hold the store; the verifier still imports
++the encoder it checks, so the correlated-oracle problem stays until there is a
++second encoder; and there is no CI matrix, so the cross-platform claim is two
++runs compared by hand rather than a pipeline.
+ 
+ ## Citation
+ 
+diff --git a/audit/README.md b/audit/README.md
+index 15e0700..d772e44 100644
+--- a/audit/README.md
++++ b/audit/README.md
+@@ -8,7 +8,7 @@ now has to be caught by a named check, and the script fails if any of them is
+ accepted again.
+ 
+ ```
+-python3 audit/regressions.py          # all seven
++python3 audit/regressions.py          # all twelve
+ python3 audit/regressions.py f5       # one, with the detail
+ ```
+ 
+@@ -22,6 +22,15 @@ python3 audit/regressions.py f5       # one, with the detail
+ | f8 | D-4004 actor and policy rewritten and re-signed | D |
+ | f13 | host-B.jsonl cut mid-line | artifacts-parse |
+ | f14 | D-4004 decision timestamp set to a Unix epoch value, re-signed | D |
++| f7 | the bytes a repair removed deleted from the quarantine file | repair-quarantine |
++| f9 | the conflict record removed, leaving the first verdict as the answer | conflict |
++| f10 | the host's reply check disabled, as it was before the patch | reply-checked |
++| f11 | the store indexing memory before the journal, as it was before | journal-first |
++
++f7 and f9 damage the evidence; f10 and f11 damage the code, because those two
++findings are about the order a process acts in and there is no artifact that
++could carry the bug. Each mode says which kind it is, so a reader can tell
++whether the counterexample is a bad record or a bad program.
+ 
+ Every mode copies the repository into a temporary directory and works there.
+ Nothing here modifies the checkout it is run from, and nothing here needs a
+diff --git a/audit/regressions.py b/audit/regressions.py
+index 5189594..23551fa 100644
+--- a/audit/regressions.py
++++ b/audit/regressions.py
+@@ -5,7 +5,7 @@ Every mode here beat the verifier at commit 25cd57f. Each one now has to be
+ caught by a named check, or this script fails. That is the point: a fix
+ without a counterexample that can fail again is a fix waiting to regress.
+ 
+-    python3 audit/regressions.py            # all seven, exit 0 only if all caught
++    python3 audit/regressions.py            # all twelve, exit 0 only if all caught
+     python3 audit/regressions.py f1         # one, with the evidence printed
+ 
+ Each mode copies the repository into a temporary directory and works there,
+@@ -52,8 +52,61 @@ MODES = {
+             "after-run", {"artifacts-parse"}, set()),
+     "f14": ("D-4004 decision_ts replaced with a Unix epoch value, re-signed, reframed",
+             "after-run", {"D"}, set()),
++    # The P1 counterexamples. Two of them are mutations of the evidence and two are mutations
++    # of the code, because F7 and F9 are defects in what the artifacts contain while F10 and
++    # F11 are defects in the order the processes act in. Mutating the artifact cannot show a
++    # bug that lives in the code, and pretending otherwise would test the mutation instead.
++    "f7": ("the bytes a repair removed deleted, so recovery destroys what it recovered",
++           "after-run", {"repair-quarantine"}, set()),
++    "f9": ("the conflict record removed, leaving the first verdict to be read as the answer",
++           "after-run", {"conflict"}, set()),
++    "f10": ("the host accepting any well-formed reply, as it did before the patch",
++            "before-run", {"reply-checked"}, set()),
++    "f11": ("the store indexing memory before the journal, as it did before the patch",
++            "before-run", {"journal-first"}, set()),
+ }
+ 
++
++def apply_before_run(tree: str, mode: str) -> None:
++    """Undo a P1 fix in the copy, so the check that claims to catch it has to catch it.
++
++    These two are orderings inside a process. There is no artifact to damage: the defect is
++    that the process acts in the wrong order, so the only counterexample is the wrong order.
++    """
++    if mode == "f11":
++        path = os.path.join(tree, "bench", "store.py")
++        with open(path, encoding="utf-8") as fh:
++            source = fh.read()
++        before = """    def record(self, rec):
++        \"\"\"Journal first, memory second. The order is the claim: nothing is known here that
++        a restart could not also know.\"\"\"
++        stored = self.journal.append(rec)
++        self.index(stored)
++        return stored"""
++        after = """    def record(self, rec):
++        # The pre-patch order: memory first, journal second.
++        self.index(rec)
++        return self.journal.append(rec)"""
++        if before not in source:
++            raise SystemExit("f11: could not find the journal-then-memory ordering")
++        with open(path, "w", encoding="utf-8", newline="\n") as fh:
++            fh.write(source.replace(before, after, 1))
++        return
++
++    if mode == "f10":
++        path = os.path.join(tree, "bench", "host.py")
++        with open(path, encoding="utf-8") as fh:
++            source = fh.read()
++        before = "            if action_id is not None and resp.get(\"action_id\") != action_id:"
++        after = "            if False and action_id is not None and resp.get(\"action_id\") != action_id:"
++        if before not in source:
++            raise SystemExit("f10: could not find the reply check")
++        with open(path, "w", encoding="utf-8", newline="\n") as fh:
++            fh.write(source.replace(before, after, 1))
++        return
++
++    raise SystemExit("no before-run change for %r" % mode)
++
+ TAMPER_HOOK = '''
+ 
+ def _regression_tamper(rundir):
+@@ -97,7 +150,11 @@ def patch_driver(repo: str) -> None:
+ 
+ EXPECTED_ARTIFACTS = ("store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
+                       "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
+-                      "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "manifest.json")
++                      "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "manifest.json",
++                      "probe-durability/journal.jsonl", "probe-durability/result.json",
++                      "probe-repair/journal.jsonl",
++                      "probe-repair/journal.jsonl.quarantine-1.bin",
++                      "probe-reply/host-E.jsonl")
+ 
+ 
+ def run_suite(repo: str, env: dict | None = None, attempts: int = 3) -> str:
+@@ -220,6 +277,25 @@ def apply_after_run(repo: str, rundir: str, mode: str) -> None:
+             os.remove(os.path.join(rundir, name))
+         return
+ 
++    if mode == "f7":
++        # Repair kept the bytes; delete them, and the check that says it does must fail.
++        for name in os.listdir(os.path.join(rundir, "probe-repair")):
++            if ".quarantine-" in name:
++                os.remove(os.path.join(rundir, "probe-repair", name))
++        return
++
++    if mode == "f9":
++        # Remove the conflict record, as a store that resolved duplicates silently would not
++        # have written one. The two verdicts stay, so the ambiguity is still in the journal.
++        path = os.path.join(rundir, "store.jsonl")
++        with open(path, encoding="utf-8") as fh:
++            rows = [json.loads(line) for line in fh if line.strip()]
++        kept = [row for row in rows if row.get("kind") != "conflict"]
++        with open(path, "w", encoding="utf-8", newline="\n") as fh:
++            for row in kept:
++                fh.write(json.dumps(row, sort_keys=True) + "\n")
++        return
++
+     if mode == "f13":
+         path = os.path.join(rundir, "host-B.jsonl")
+         with open(path, "rb") as fh:
+@@ -273,6 +349,8 @@ def run_mode(repo: str, mode: str) -> tuple[bool, str]:
+         if MODES[mode][1] == "mid-run":
+             patch_driver(tree)
+             env["REGRESSION_MODE"] = mode
++        elif MODES[mode][1] == "before-run":
++            apply_before_run(tree, mode)
+         rundir = run_suite(tree, env)
+         detail = ""
+         if MODES[mode][1] == "after-run":
+diff --git a/bench/host.py b/bench/host.py
+index 6bdaf83..c8dd084 100644
+--- a/bench/host.py
++++ b/bench/host.py
+@@ -16,6 +16,8 @@ Scenarios:
+     C''  locally minted id, host dies                          -> silence
+     D    full record, binding verifies                         -> verified
+     D'   full record with no signature                         -> quarantined, never verified
++    E    store replies that are well formed and about another
++         action                                                 -> rejected, effect withheld
+ """
+ 
+ import argparse
+@@ -66,6 +68,40 @@ class Host:
+             os.fsync(fh.fileno())
+         return event
+ 
++    # -- talking to the store ---------------------------------------------------------------
++
++    def request(self, req, action_id=None):
++        """Ask the store, then read the answer as an answer to this question.
++
++        A reply is only consent if it is well formed, says it succeeded, and names the action
++        that was asked about. Anything else is returned with the reasons it was refused, and
++        the caller decides what that means for the effect. This is the difference between a
++        message arriving and a message being a reply.
++        """
++        try:
++            resp = self.transport.call(req)
++        except OSError as exc:
++            return None, ["store unreachable: %s" % exc.__class__.__name__]
++        problems = []
++        if not isinstance(resp, dict):
++            problems.append("reply is not a JSON object")
++        else:
++            if resp.get("ok") is not True:
++                problems.append("store refused: %s" % resp.get("error"))
++            if action_id is not None and resp.get("action_id") != action_id:
++                problems.append("reply names %r, the request was %r"
++                                % (resp.get("action_id"), action_id))
++        return resp, problems
++
++    def require(self, req, action_id=None, purpose=None):
++        """A request whose failure is a named event rather than a silent continuation."""
++        resp, problems = self.request(req, action_id)
++        if problems:
++            self.emit("reply_rejected", action_id=action_id, command=req.get("cmd"),
++                      purpose=purpose, problems=problems)
++            return None
++        return resp
++
+     # -- the guard --------------------------------------------------------------------------
+ 
+     def guard(self, action_id, descriptor):
+@@ -106,8 +142,9 @@ class Host:
+         aid = self.flags.action_id or "A-1042"
+         descriptor = {"kind": "state_transition", "from": "draft", "to": "issued"}
+         if register:
+-            self.transport.call({"cmd": "expect", "action_id": aid, "policy_sha": POLICY_SHA})
+-            self.emit("expectation_registered", action_id=aid)
++            if self.require({"cmd": "expect", "action_id": aid, "policy_sha": POLICY_SHA},
++                            action_id=aid, purpose="register an expectation") is not None:
++                self.emit("expectation_registered", action_id=aid)
+         self.emit("proposal", action_id=aid, descriptor_sha=digest(descriptor))
+         decision = self.guard(aid, descriptor)
+         # Failpoint: the verdict is decided and then never emitted. This is the default failure.
+@@ -133,14 +170,18 @@ class Host:
+             fh.flush()
+             os.fsync(fh.fileno())
+         self.emit("wal_commit", action_id=aid, decision_ts=record["decision_ts"])
+-        try:
+-            self.transport.call({"cmd": "verdict", "record": record})
+-            self.emit("ship_ok", action_id=aid)
+-        except OSError as exc:
++        resp, problems = self.request({"cmd": "verdict", "record": record}, action_id=aid)
++        if problems and resp is None:
+             # T3 failed. The store is unreachable. The effect must not proceed.
+-            self.emit("ship_failed", action_id=aid, error=exc.__class__.__name__)
++            self.emit("ship_failed", action_id=aid, error=problems[0])
+             self.emit("effect_withheld", action_id=aid, reason="verdict not durable centrally")
+             return
++        if problems:
++            # The store answered, and the answer was not about this action. That is not consent.
++            self.emit("reply_rejected", action_id=aid, command="verdict", problems=problems)
++            self.emit("effect_withheld", action_id=aid, reason="store reply rejected")
++            return
++        self.emit("ship_ok", action_id=aid)
+         self.emit("effect_withheld", action_id=aid, reason="guard blocked")
+ 
+     def replay_case(self):
+@@ -151,9 +192,12 @@ class Host:
+         for record in records:
+             self.emit("replay_read", action_id=record["action_id"],
+                       decision_ts=record["decision_ts"])
+-            self.transport.call({"cmd": "verdict", "record": record})
+-            self.emit("replay_shipped", action_id=record["action_id"],
+-                      decision_ts=record["decision_ts"])
++            aid = record["action_id"]
++            if self.require({"cmd": "verdict", "record": record}, action_id=aid,
++                            purpose="ship the recovered verdict") is None:
++                self.emit("effect_withheld", action_id=aid, reason="store reply rejected")
++                continue
++            self.emit("replay_shipped", action_id=aid, decision_ts=record["decision_ts"])
+ 
+     def scenario_C(self):
+         return self.host_death_case()
+@@ -172,11 +216,13 @@ class Host:
+             # The id is minted on the host. Its name dies with the host that named it.
+             self.emit("local_id_minted", action_id=aid)
+         else:
+-            self.transport.call({"cmd": "issue", "action_id": aid})
+-            self.emit("id_issued", action_id=aid, source="store")
++            if self.require({"cmd": "issue", "action_id": aid}, action_id=aid,
++                            purpose="register an id") is not None:
++                self.emit("id_issued", action_id=aid, source="store")
+             if not self.flags.issue_only:
+-                self.transport.call({"cmd": "commit", "action_id": aid, "descriptor_sha": desc_sha})
+-                self.emit("commitment_preserved", action_id=aid, descriptor_sha=desc_sha)
++                if self.require({"cmd": "commit", "action_id": aid, "descriptor_sha": desc_sha},
++                                action_id=aid, purpose="commit content") is not None:
++                    self.emit("commitment_preserved", action_id=aid, descriptor_sha=desc_sha)
+         self.emit("proposal", action_id=aid, descriptor_sha=desc_sha)
+         self.guard(aid, descriptor)
+         self.emit("host_dying", action_id=aid, note="killed before any verdict left the process")
+@@ -186,6 +232,10 @@ class Host:
+     def scenario_D(self):
+         return self.binding_case(strip_signature=False)
+ 
++    def scenario_E(self):
++        """The store is well behaved except that its verdict reply is about another action."""
++        return self.binding_case(strip_signature=False)
++
+     def scenario_Dp(self):
+         return self.binding_case(strip_signature=True)
+ 
+@@ -193,8 +243,12 @@ class Host:
+         aid = self.flags.action_id or "D-4004"
+         descriptor = {"kind": "read", "target": "order-42"}
+         desc_sha = digest(descriptor)
+-        self.transport.call({"cmd": "issue", "action_id": aid})
+-        self.transport.call({"cmd": "commit", "action_id": aid, "descriptor_sha": desc_sha})
++        if self.require({"cmd": "issue", "action_id": aid}, action_id=aid,
++                        purpose="register an id") is None:
++            return
++        if self.require({"cmd": "commit", "action_id": aid, "descriptor_sha": desc_sha},
++                        action_id=aid, purpose="commit content") is None:
++            return
+         self.emit("proposal", action_id=aid, descriptor_sha=desc_sha)
+         decision = self.guard(aid, descriptor)
+         record = self.decision_record(decision, desc_sha, decision_ts=self.clock.step,
+@@ -204,7 +258,13 @@ class Host:
+         record["signature"] = None if strip_signature else sign(record_payload(record))
+         if strip_signature:
+             self.emit("signature_stripped", action_id=aid)
+-        self.transport.call({"cmd": "verdict", "record": record})
++        resp, problems = self.request({"cmd": "verdict", "record": record}, action_id=aid)
++        if problems:
++            # The record exists locally, but the store's answer did not confirm this action,
++            # so no effect is logged. A reply is not a receipt for whatever was asked.
++            self.emit("reply_rejected", action_id=aid, command="verdict", problems=problems)
++            self.emit("effect_withheld", action_id=aid, reason="store reply rejected")
++            return
+         self.emit("ship_ok", action_id=aid, signed=not strip_signature)
+         self.emit("effect_committed", action_id=aid, effect_ref=record["effect_ref"])
+ 
+diff --git a/bench/store.py b/bench/store.py
+index 6b2245f..3ab6b6a 100644
+--- a/bench/store.py
++++ b/bench/store.py
+@@ -18,6 +18,7 @@ restart is a recovery rather than a reset.
+ """
+ 
+ import argparse
++import hashlib
+ import hmac
+ import json
+ import os
+@@ -29,6 +30,10 @@ from common import record_payload, frame, verify as verify_signature
+ POLICY_SHA = "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1"
+ 
+ 
++class JournalError(Exception):
++    """The journal did not take the record. Nothing was persisted, so nothing may be claimed."""
++
++
+ class Journal:
+     """Append-only, fsynced per record, framed so a torn write is detectable.
+ 
+@@ -43,19 +48,34 @@ class Journal:
+         self.seq = 0
+         self.discarded = 0
+         self.unframed = 0
++        self.quarantine = None
++        # A failpoint, so a journal that refuses a write can be tested without a full disk.
++        # It refuses before anything is written, which is the case the ordering claim is about.
++        self.failpoint = os.environ.get("HFB_FAILPOINT", "")
+ 
+     def append(self, record):
+-        self.seq += 1
+         record = dict(record)
+-        record["store_seq"] = self.seq
++        record["store_seq"] = self.seq + 1
+         record["digest"] = frame(record)
++        if self.failpoint == "verdict" and record.get("kind") == "verdict":
++            raise JournalError("injected: the journal refused a verdict write")
+         line = json.dumps(record, sort_keys=True)
+         with open(self.path, "a", encoding="utf-8", newline="\n") as fh:
+             fh.write(line + "\n")
+             fh.flush()
+             os.fsync(fh.fileno())
++        # The sequence only advances once the bytes are on disk. A record that was never
++        # written must not consume a number, or a gap in the numbering looks like a lost record.
++        self.seq = record["store_seq"]
+         return record
+ 
++    def _quarantine_name(self):
++        directory = os.path.dirname(self.path) or "."
++        base = os.path.basename(self.path)
++        taken = [name for name in os.listdir(directory)
++                 if name.startswith(base + ".quarantine-") and name.endswith(".bin")]
++        return "%s.quarantine-%d.bin" % (base, len(taken) + 1)
++
+     def replay(self):
+         if not os.path.exists(self.path):
+             return []
+@@ -84,6 +104,22 @@ class Journal:
+                 good = offset
+         if good < os.path.getsize(self.path):
+             self.discarded = os.path.getsize(self.path) - good
++            # The bytes a repair discards are the only record of what was in flight when the
++            # write stopped. Copying them out costs a file and keeps evidence that a truncation
++            # would otherwise destroy.
++            with open(self.path, "rb") as fh:
++                fh.seek(good)
++                tail = fh.read()
++            name = self._quarantine_name()
++            with open(os.path.join(os.path.dirname(self.path) or ".", name), "wb") as fh:
++                fh.write(tail)
++                fh.flush()
++                os.fsync(fh.fileno())
++            self.quarantine = {
++                "file": name,
++                "bytes": len(tail),
++                "sha256": hashlib.sha256(tail).hexdigest(),
++            }
+             with open(self.path, "r+b") as fh:
+                 fh.truncate(good)
+                 fh.flush()
+@@ -102,13 +138,15 @@ class Store:
+         self.expectations = {}
+         self.verdicts = {}
+         self.verdict_state = {}
++        self.conflicts = {}
+         self.load()
+ 
+     def load(self):
+         for rec in self.journal.replay():
+-            self.apply(rec, persist=False)
++            self.index(rec)
+ 
+-    def apply(self, rec, persist=True):
++    def index(self, rec):
++        """Update memory from a record that is already on disk. Memory is never ahead of it."""
+         kind = rec.get("kind")
+         aid = rec.get("action_id")
+         if kind == "issued":
+@@ -118,15 +156,33 @@ class Store:
+         elif kind == "expectation":
+             self.expectations[aid] = rec
+         elif kind == "verdict":
+-            self.verdicts[aid] = rec
+-            # The state is a property of the record, not a claim it makes about itself:
+-            # a record whose binding does not verify is stored, kept visible, and never
+-            # allowed to resolve a gap.
+-            self.verdict_state[aid] = rec.get("state") or self.state_of(rec.get("record"))
+-        if persist:
+-            return self.journal.append(rec)
++            first = self.verdicts.get(aid)
++            state = rec.get("state") or self.state_of(rec.get("record"))
++            if first is None:
++                self.verdicts[aid] = rec
++                # The state is a property of the record, not a claim it makes about itself:
++                # a record whose binding does not verify is stored, kept visible, and never
++                # allowed to resolve a gap.
++                self.verdict_state[aid] = state
++            elif first.get("record") != rec.get("record"):
++                # Two different verdicts for one action. Whichever one a reader happens to
++                # load first must not become the answer, so the state says so and neither
++                # record closes the gap.
++                self.verdict_state[aid] = "conflicted"
++            elif state != "verified":
++                self.verdict_state[aid] = state
++        elif kind == "conflict":
++            self.conflicts[aid] = rec
++            self.verdict_state[aid] = "conflicted"
+         return rec
+ 
++    def record(self, rec):
++        """Journal first, memory second. The order is the claim: nothing is known here that
++        a restart could not also know."""
++        stored = self.journal.append(rec)
++        self.index(stored)
++        return stored
++
+     @staticmethod
+     def state_of(record):
+         """verified or unverified, recomputed from the record's own bytes."""
+@@ -145,43 +201,65 @@ class Store:
+     def cmd_issue(self, req):
+         aid = req["action_id"]
+         if aid in self.issued:
+-            return {"ok": True, "duplicate": True}
+-        self.apply({"kind": "issued", "action_id": aid})
+-        return {"ok": True}
++            return {"ok": True, "duplicate": True, "action_id": aid}
++        self.record({"kind": "issued", "action_id": aid})
++        return {"ok": True, "action_id": aid}
+ 
+     def cmd_commit(self, req):
+         aid = req["action_id"]
+         if aid not in self.issued:
+-            return {"ok": False, "error": "unknown action id: a commitment needs an issued id"}
+-        self.apply({"kind": "commitment", "action_id": aid, "descriptor_sha": req["descriptor_sha"]})
+-        return {"ok": True}
++            return {"ok": False, "action_id": aid,
++                    "error": "unknown action id: a commitment needs an issued id"}
++        self.record({"kind": "commitment", "action_id": aid,
++                     "descriptor_sha": req["descriptor_sha"]})
++        return {"ok": True, "action_id": aid}
+ 
+     def cmd_expect(self, req):
+         aid = req["action_id"]
+-        self.apply({"kind": "expectation", "action_id": aid, "policy_sha": req.get("policy_sha")})
+-        return {"ok": True}
++        # An expectation names an action the host has not necessarily issued yet. It is a
++        # promise to look for a decision, so it is allowed to arrive before the id does.
++        self.record({"kind": "expectation", "action_id": aid,
++                     "policy_sha": req.get("policy_sha")})
++        return {"ok": True, "action_id": aid}
+ 
+     def cmd_verdict(self, req):
+         rec = req.get("record")
+         if not isinstance(rec, dict) or not isinstance(rec.get("action_id"), str):
+             # A verdict with no action id cannot be stored against anything.
+-            return {"ok": False, "stored": False, "error": "record needs an action_id"}
++            return {"ok": False, "stored": False, "action_id": None,
++                    "error": "record needs an action_id"}
+         aid = rec["action_id"]
+         state = self.state_of(rec)
+-        stored = self.apply({"kind": "verdict", "action_id": aid, "record": rec,
+-                             "state": state})
+-        return {"ok": True, "stored": True, "state": state,
+-                "store_seq": stored.get("store_seq")}
++        first = self.verdicts.get(aid)
++        stored = self.record({"kind": "verdict", "action_id": aid, "record": rec,
++                              "state": state})
++        if first is not None and first.get("record") != rec:
++            conflict = self.record({
++                "kind": "conflict",
++                "action_id": aid,
++                "first_seq": first.get("store_seq"),
++                "second_seq": stored.get("store_seq"),
++                "first_verdict": (first.get("record") or {}).get("verdict"),
++                "second_verdict": rec.get("verdict"),
++                "rule": "two different verdicts for one action id: neither resolves the gap",
++            })
++            return {"ok": True, "stored": True, "state": "conflicted", "conflict": True,
++                    "action_id": aid, "store_seq": stored.get("store_seq"),
++                    "conflict_seq": conflict.get("store_seq")}
++        return {"ok": True, "stored": True, "state": self.verdict_state.get(aid, state),
++                "action_id": aid, "store_seq": stored.get("store_seq")}
+ 
+     def cmd_lookup(self, req):
+         aid = req["action_id"]
+         return {
+             "ok": True,
++            "action_id": aid,
+             "issued": self.issued.get(aid),
+             "commitment": self.commitments.get(aid),
+             "expectation": self.expectations.get(aid),
+             "verdict": self.verdicts.get(aid),
+             "verdict_state": self.verdict_state.get(aid),
++            "conflict": self.conflicts.get(aid),
+         }
+ 
+     def cmd_reconcile(self, req):
+@@ -222,6 +300,8 @@ class Store:
+             "commitments": sorted(self.commitments),
+             "expectations": sorted(self.expectations),
+             "verdicts": sorted(self.verdicts),
++            "conflicted_verdicts": sorted(aid for aid, state in self.verdict_state.items()
++                                          if state == "conflicted"),
+             "unverified_verdicts": sorted(aid for aid, state in self.verdict_state.items()
+                                           if state != "verified"),
+             "gaps": self.cmd_reconcile({})["gaps"],
+@@ -240,7 +320,11 @@ class Store:
+         }
+         if cmd not in table:
+             return {"ok": False, "error": "unknown command: %r" % cmd}
+-        return table[cmd](req)
++        try:
++            return table[cmd](req)
++        except JournalError as exc:
++            # The write did not happen, so nothing is claimed and memory is untouched.
++            return {"ok": False, "durable": False, "error": str(exc)}
+ 
+ 
+ class Handler(socketserver.StreamRequestHandler):
+@@ -273,15 +357,21 @@ def main(argv):
+     args = ap.parse_args(argv[1:])
+ 
+     store = Store(Journal(args.journal))
++    # How many records the replay recovered. Named for what it counts: a sequence number here
++    # used to be off by one, which made a repair look like it lost one more record than it did.
++    replayed = store.journal.seq
+     if store.journal.discarded:
+         # Say what was lost instead of silently presenting a shorter history as the whole one.
+         store.journal.append({"kind": "repair",
+                               "discarded_bytes": store.journal.discarded,
+-                              "replayed_seq": store.journal.seq - 1})
++                              "replayed_records": replayed,
++                              "quarantine": (store.journal.quarantine or {}).get("file"),
++                              "quarantine_bytes": (store.journal.quarantine or {}).get("bytes"),
++                              "quarantine_sha256": (store.journal.quarantine or {}).get("sha256")})
+         print("journal repaired: %d trailing bytes discarded" % store.journal.discarded,
+               flush=True)
+     # A boot marker, so a reader can tell what arrived before a recovery and what arrived after.
+-    store.journal.append({"kind": "boot", "replayed_seq": store.journal.seq})
++    store.journal.append({"kind": "boot", "replayed_records": replayed})
+     srv = Server(("127.0.0.1", 0), Handler)
+     srv.store = store
+     port = srv.server_address[1]
+diff --git a/bench/stub_store.py b/bench/stub_store.py
+new file mode 100644
+index 0000000..cf57402
+--- /dev/null
++++ b/bench/stub_store.py
+@@ -0,0 +1,71 @@
++"""A store that answers every request and confirms the wrong action.
++
++Scenario E exists to separate two things a host can confuse: a message arriving, and a message
++being an answer to the question that was asked. This process is well behaved in every way that
++is easy to check and wrong in the one way that matters. It accepts a verdict, says it stored it,
++says it verified, and names a different action id in the same reply.
++
++    python bench/stub_store.py --announce artifacts/run-.../probe-reply/port.txt
++
++It is a fixture, not a store. It keeps nothing and replays nothing, and it is never used by
++`run.py` for any scenario except E.
++"""
++
++import argparse
++import json
++import os
++import socketserver
++import sys
++
++# The id it names, whatever it was asked about. Deliberately not one the run uses anywhere.
++WRONG_ID = "S-0000"
++
++
++class Handler(socketserver.StreamRequestHandler):
++    def handle(self):
++        for raw in self.rfile:
++            raw = raw.decode("utf-8").strip()
++            if not raw:
++                continue
++            try:
++                req = json.loads(raw)
++            except ValueError:
++                break
++            cmd = req.get("cmd")
++            asked = req.get("action_id")
++            if asked is None and isinstance(req.get("record"), dict):
++                asked = req["record"].get("action_id")
++            if cmd == "verdict":
++                resp = {"ok": True, "stored": True, "state": "verified",
++                        "action_id": WRONG_ID, "store_seq": 1}
++            elif cmd == "lookup":
++                resp = {"ok": True, "action_id": WRONG_ID}
++            else:
++                resp = {"ok": True, "action_id": asked}
++            self.wfile.write((json.dumps(resp, sort_keys=True) + "\n").encode("utf-8"))
++            self.wfile.flush()
++
++
++class Server(socketserver.TCPServer):
++    allow_reuse_address = True
++    daemon_threads = False
++
++
++def main(argv):
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--announce", required=True, help="file to write the bound port into")
++    args = ap.parse_args(argv[1:])
++    srv = Server(("127.0.0.1", 0), Handler)
++    port = srv.server_address[1]
++    with open(args.announce, "w", encoding="utf-8", newline="\n") as fh:
++        fh.write(str(port))
++    print("stub store listening on 127.0.0.1:%d" % port, flush=True)
++    try:
++        srv.serve_forever()
++    except KeyboardInterrupt:
++        pass
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv))
+diff --git a/challenge.py b/challenge.py
+index 6d86b65..bb07584 100644
+--- a/challenge.py
++++ b/challenge.py
+@@ -2,7 +2,7 @@
+ """Break the artifacts on purpose and confirm verification notices.
+ 
+ A checker that cannot fail is a decoration. This script takes a finished run, damages the record
+-in nine specific ways, and requires that the damage be caught by the check that claims to catch
++in ten specific ways, and requires that the damage be caught by the check that claims to catch
+ it. If a mutation slips through, the check it targets is not measuring what it says it measures.
+ 
+     python challenge.py artifacts/run-20261101T120000Z
+@@ -20,7 +20,7 @@ import tempfile
+ HERE = os.path.dirname(os.path.abspath(__file__))
+ sys.path.insert(0, os.path.join(HERE, "bench"))
+ 
+-from common import record_payload, sign  # noqa: E402
++from common import frame, record_payload, sign  # noqa: E402
+ 
+ VERIFY = os.path.join(HERE, "verify.py")
+ 
+@@ -36,9 +36,30 @@ def save_store(path, records):
+             fh.write(json.dumps(rec, sort_keys=True) + "\n")
+ 
+ 
++def copy_run(rundir, work):
++    """Copy the whole run, probe directories included.
++
++    Copying only the top level of files left every mutation looking like a run with missing
++    probes, which made some checks fail for a reason that had nothing to do with the damage.
++    """
++    for root, dirs, files in os.walk(rundir):
++        rel = os.path.relpath(root, rundir)
++        target = work if rel == "." else os.path.join(work, rel)
++        os.makedirs(target, exist_ok=True)
++        for name in files:
++            shutil.copy2(os.path.join(root, name), os.path.join(target, name))
++
++
+ def renumber(records):
++    """Resequence and reframe.
++
++    Editing a journal without recomputing its frames would make every mutation fail the frame
++    check, and a mutation that is caught for the wrong reason has not tested the check it names.
++    The one mutation that is supposed to leave a stale frame breaks it afterwards, on the file.
++    """
+     for index, rec in enumerate(records, start=1):
+         rec["store_seq"] = index
++        rec["digest"] = frame(rec)
+     return records
+ 
+ 
+@@ -109,15 +130,30 @@ def cut_tail(path):
+         fh.write(data[: len(data) - 40])
+ 
+ 
++def drop_conflict(records):
++    """The store keeps both verdicts and drops the record saying they disagree."""
++    return ([r for r in records if r.get("kind") != "conflict"],
++            "the conflict record between the two verdicts for C-9009 is gone")
++
++
+ def break_a_frame(records):
+-    """A record is edited and its frame is left as it was, as a careless editor would leave it."""
+-    for rec in records:
+-        if rec.get("kind") == "expectation":
+-            rec["policy_sha"] = "sha256:" + "f" * 64
+-            break
++    """A record is edited and its frame is left as it was, as a careless editor would leave it.
++
++    The edit happens in `stale_frame`, after the journal has been reframed, so the only thing
++    damaged is the frame itself.
++    """
+     return records, "an expectation was edited and its frame was not recomputed"
+ 
+ 
++def stale_frame(path):
++    rows = load_store(path)
++    for row in rows:
++        if row.get("kind") == "expectation":
++            row["policy_sha"] = "sha256:" + "f" * 64
++            break
++    save_store(path, rows)
++
++
+ def to_crlf(path):
+     with open(path, "rb") as fh:
+         data = fh.read()
+@@ -134,7 +170,8 @@ MUTATIONS = [
+     ("dirty-the-signature", dirty_the_signature, {"D"}),
+     ("crlf-the-journal", (crlf_the_journal, to_crlf), {"line-endings"}),
+     ("torn-tail", (torn_tail, cut_tail), {"artifacts-readable"}),
+-    ("break-a-frame", break_a_frame, {"store-records-framed"}),
++    ("break-a-frame", (break_a_frame, stale_frame), {"store-records-framed"}),
++    ("drop-conflict", drop_conflict, {"conflict"}),
+ ]
+ 
+ 
+@@ -148,10 +185,7 @@ def baseline(rundir):
+ 
+ def run_mutation(rundir, name, mutate):
+     work = tempfile.mkdtemp(prefix="challenge-%s-" % name)
+-    for entry in os.listdir(rundir):
+-        src = os.path.join(rundir, entry)
+-        if os.path.isfile(src):
+-            shutil.copy2(src, os.path.join(work, entry))
++    copy_run(rundir, work)
+     store_path = os.path.join(work, "store.jsonl")
+     post = None
+     if isinstance(mutate, tuple):
+diff --git a/example/run/host-B.jsonl b/example/run/host-B.jsonl
+index 84f0656..668d955 100644
+--- a/example/run/host-B.jsonl
++++ b/example/run/host-B.jsonl
+@@ -1,7 +1,7 @@
+ {"action_id": "B-2001", "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232", "kind": "proposal", "phase": "PROPOSAL", "run": "initial", "scenario": "B", "step": 1}
+ {"action_id": "B-2001", "kind": "guard_decision", "phase": "GUARD_DECISION", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": "R7", "run": "initial", "scenario": "B", "step": 2, "verdict": "BLOCK"}
+ {"action_id": "B-2001", "decision_ts": 2, "kind": "wal_commit", "phase": "WAL_COMMIT", "run": "initial", "scenario": "B", "step": 3}
+-{"action_id": "B-2001", "error": "ConnectionRefusedError", "kind": "ship_failed", "phase": "SHIP_FAILED", "run": "initial", "scenario": "B", "step": 4}
++{"action_id": "B-2001", "error": "store unreachable: ConnectionRefusedError", "kind": "ship_failed", "phase": "SHIP_FAILED", "run": "initial", "scenario": "B", "step": 4}
+ {"action_id": "B-2001", "kind": "effect_withheld", "phase": "EFFECT_WITHHELD", "reason": "verdict not durable centrally", "run": "initial", "scenario": "B", "step": 5}
+ {"action_id": "B-2001", "decision_ts": 2, "kind": "replay_read", "phase": "REPLAY_READ", "run": "replay", "scenario": "B", "step": 1}
+ {"action_id": "B-2001", "decision_ts": 2, "kind": "replay_shipped", "phase": "REPLAY_SHIPPED", "run": "replay", "scenario": "B", "step": 2}
+diff --git a/example/run/lookups.json b/example/run/lookups.json
+index 7387fca..7962cc4 100644
+--- a/example/run/lookups.json
++++ b/example/run/lookups.json
+@@ -1,6 +1,8 @@
+ {
+   "A": {
++    "action_id": "A-1042",
+     "commitment": null,
++    "conflict": null,
+     "expectation": {
+       "action_id": "A-1042",
+       "digest": "faac1cd072388c8d1721343432ba8625",
+@@ -14,7 +16,9 @@
+     "verdict_state": null
+   },
+   "A'": {
++    "action_id": "A-1043",
+     "commitment": null,
++    "conflict": null,
+     "expectation": null,
+     "issued": null,
+     "ok": true,
+@@ -22,12 +26,15 @@
+     "verdict_state": null
+   },
+   "B": {
++    "action_id": "B-2001",
+     "commitment": null,
++    "conflict": null,
+     "expectation": null,
+     "issued": null,
+     "ok": true,
+     "verdict": {
+       "action_id": "B-2001",
++      "digest": "3d7e75a0109bc3b6b0b3c9c6b0604a2b",
+       "kind": "verdict",
+       "record": {
+         "action_id": "B-2001",
+@@ -39,38 +46,51 @@
+         "signature": "b5771cbed9c5858f6e4d82a994be60d93afaf093116a20d78bb80fccd9400a52",
+         "verdict": "BLOCK"
+       },
+-      "state": "verified"
++      "state": "verified",
++      "store_seq": 4
+     },
+     "verdict_state": "verified"
+   },
+   "C": {
++    "action_id": "C-3003",
+     "commitment": {
+       "action_id": "C-3003",
+       "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232",
+-      "kind": "commitment"
++      "digest": "608742ebff06d1ff758f8dc4df85a23e",
++      "kind": "commitment",
++      "store_seq": 6
+     },
++    "conflict": null,
+     "expectation": null,
+     "issued": {
+       "action_id": "C-3003",
+-      "kind": "issued"
++      "digest": "07f71a35c27c99e1953d05bc97174676",
++      "kind": "issued",
++      "store_seq": 5
+     },
+     "ok": true,
+     "verdict": null,
+     "verdict_state": null
+   },
+   "C'": {
++    "action_id": "C-3004",
+     "commitment": null,
++    "conflict": null,
+     "expectation": null,
+     "issued": {
+       "action_id": "C-3004",
+-      "kind": "issued"
++      "digest": "41f638b94a54b33f54c1b2fc845a3f7f",
++      "kind": "issued",
++      "store_seq": 7
+     },
+     "ok": true,
+     "verdict": null,
+     "verdict_state": null
+   },
+   "C''": {
++    "action_id": "C-3005",
+     "commitment": null,
++    "conflict": null,
+     "expectation": null,
+     "issued": null,
+     "ok": true,
+@@ -78,19 +98,26 @@
+     "verdict_state": null
+   },
+   "D": {
++    "action_id": "D-4004",
+     "commitment": {
+       "action_id": "D-4004",
+       "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
+-      "kind": "commitment"
++      "digest": "68ab6fc2a391bb16a7fc189bd8101608",
++      "kind": "commitment",
++      "store_seq": 9
+     },
++    "conflict": null,
+     "expectation": null,
+     "issued": {
+       "action_id": "D-4004",
+-      "kind": "issued"
++      "digest": "8ad1c1ad0cd1bec545b63d9d414bff5c",
++      "kind": "issued",
++      "store_seq": 8
+     },
+     "ok": true,
+     "verdict": {
+       "action_id": "D-4004",
++      "digest": "40ccc09eaa460d73638ca6ea7a6fc340",
+       "kind": "verdict",
+       "record": {
+         "action_id": "D-4004",
+@@ -103,24 +130,32 @@
+         "signature": "0d8b97722709758ea52a5d58a32d7dca3dcf4544a6d416619e1ef6e9a1c9af4a",
+         "verdict": "ALLOW"
+       },
+-      "state": "verified"
++      "state": "verified",
++      "store_seq": 10
+     },
+     "verdict_state": "verified"
+   },
+   "D'": {
++    "action_id": "D-4005",
+     "commitment": {
+       "action_id": "D-4005",
+       "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
+-      "kind": "commitment"
++      "digest": "cedbd0255d55d02854948a2ad8ad750a",
++      "kind": "commitment",
++      "store_seq": 12
+     },
++    "conflict": null,
+     "expectation": null,
+     "issued": {
+       "action_id": "D-4005",
+-      "kind": "issued"
++      "digest": "9ba90686f8f242cc7f2a24db948eda67",
++      "kind": "issued",
++      "store_seq": 11
+     },
+     "ok": true,
+     "verdict": {
+       "action_id": "D-4005",
++      "digest": "01377fb54753ecf9e89d0db56f20334c",
+       "kind": "verdict",
+       "record": {
+         "action_id": "D-4005",
+@@ -133,7 +168,8 @@
+         "signature": null,
+         "verdict": "ALLOW"
+       },
+-      "state": "unverified"
++      "state": "unverified",
++      "store_seq": 13
+     },
+     "verdict_state": "unverified"
+   }
+diff --git a/example/run/manifest.json b/example/run/manifest.json
+index 6d91026..25421a2 100644
+--- a/example/run/manifest.json
++++ b/example/run/manifest.json
+@@ -9,6 +9,11 @@
+     "host-D.jsonl",
+     "host-Dp.jsonl",
+     "lookups.json",
++    "probe-durability/journal.jsonl",
++    "probe-durability/result.json",
++    "probe-repair/journal.jsonl",
++    "probe-repair/journal.jsonl.quarantine-1.bin",
++    "probe-reply/host-E.jsonl",
+     "reconciled.json",
+     "store-state.json",
+     "store.jsonl",
+@@ -26,6 +31,11 @@
+     "host-D.jsonl",
+     "host-Dp.jsonl",
+     "lookups.json",
++    "probe-durability/journal.jsonl",
++    "probe-durability/result.json",
++    "probe-repair/journal.jsonl",
++    "probe-repair/journal.jsonl.quarantine-1.bin",
++    "probe-reply/host-E.jsonl",
+     "reconciled.json",
+     "store-state.json",
+     "store.jsonl",
+diff --git a/example/run/probe-durability/journal.jsonl b/example/run/probe-durability/journal.jsonl
+new file mode 100644
+index 0000000..efddb89
+--- /dev/null
++++ b/example/run/probe-durability/journal.jsonl
+@@ -0,0 +1,4 @@
++{"digest": "39c7a2f6eb8675b8f4741f58e29149ce", "kind": "boot", "replayed_records": 0, "store_seq": 1}
++{"action_id": "P-9001", "digest": "2bdd822e4b8847e89dcb75125d808679", "kind": "issued", "store_seq": 2}
++{"action_id": "P-9001", "digest": "ea051460188364cc899ca6db294f6305", "kind": "expectation", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "store_seq": 3}
++{"digest": "600df226cc224202dafde6cee2dc01e7", "kind": "boot", "replayed_records": 3, "store_seq": 4}
+diff --git a/example/run/probe-durability/result.json b/example/run/probe-durability/result.json
+new file mode 100644
+index 0000000..9b8b780
+--- /dev/null
++++ b/example/run/probe-durability/result.json
+@@ -0,0 +1,79 @@
++{
++  "action_id": "P-9001",
++  "expect": {
++    "action_id": "P-9001",
++    "ok": true
++  },
++  "issue": {
++    "action_id": "P-9001",
++    "ok": true
++  },
++  "lookup_after_restart": {
++    "action_id": "P-9001",
++    "commitment": null,
++    "conflict": null,
++    "expectation": {
++      "action_id": "P-9001",
++      "digest": "ea051460188364cc899ca6db294f6305",
++      "kind": "expectation",
++      "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1",
++      "store_seq": 3
++    },
++    "issued": {
++      "action_id": "P-9001",
++      "digest": "2bdd822e4b8847e89dcb75125d808679",
++      "kind": "issued",
++      "store_seq": 2
++    },
++    "ok": true,
++    "verdict": null,
++    "verdict_state": null
++  },
++  "lookup_same_process": {
++    "action_id": "P-9001",
++    "commitment": null,
++    "conflict": null,
++    "expectation": {
++      "action_id": "P-9001",
++      "digest": "ea051460188364cc899ca6db294f6305",
++      "kind": "expectation",
++      "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1",
++      "store_seq": 3
++    },
++    "issued": {
++      "action_id": "P-9001",
++      "digest": "2bdd822e4b8847e89dcb75125d808679",
++      "kind": "issued",
++      "store_seq": 2
++    },
++    "ok": true,
++    "verdict": null,
++    "verdict_state": null
++  },
++  "state_after_restart": {
++    "commitments": [],
++    "conflicted_verdicts": [],
++    "expectations": [
++      "P-9001"
++    ],
++    "gaps": [
++      {
++        "action_id": "P-9001",
++        "content": null,
++        "reason": "expected verdict, none recorded",
++        "strength": "name only"
++      }
++    ],
++    "issued": [
++      "P-9001"
++    ],
++    "ok": true,
++    "unverified_verdicts": [],
++    "verdicts": []
++  },
++  "verdict": {
++    "durable": false,
++    "error": "injected: the journal refused a verdict write",
++    "ok": false
++  }
++}
+\ No newline at end of file
+diff --git a/example/run/probe-repair/journal.jsonl b/example/run/probe-repair/journal.jsonl
+new file mode 100644
+index 0000000..435fafd
+--- /dev/null
++++ b/example/run/probe-repair/journal.jsonl
+@@ -0,0 +1,4 @@
++{"action_id": "R-7001", "digest": "727bb8f0ed38c58bd6b5ef1db1609d3c", "kind": "issued", "store_seq": 1}
++{"action_id": "R-7002", "digest": "690e451fdfa5227358c86a91e94689df", "kind": "issued", "store_seq": 2}
++{"digest": "c34452f914fd353bd9aa750552a9cb67", "discarded_bytes": 39, "kind": "repair", "quarantine": "journal.jsonl.quarantine-1.bin", "quarantine_bytes": 39, "quarantine_sha256": "049af3c3be831fcbc3996a5ae4a3043ae9afec40cb772cc239eb211e5a6057b1", "replayed_records": 2, "store_seq": 3}
++{"digest": "7aeda9b3f034442adb2206ededd3516b", "kind": "boot", "replayed_records": 2, "store_seq": 4}
+diff --git a/example/run/probe-repair/journal.jsonl.quarantine-1.bin b/example/run/probe-repair/journal.jsonl.quarantine-1.bin
+new file mode 100644
+index 0000000..fa27ea4
+--- /dev/null
++++ b/example/run/probe-repair/journal.jsonl.quarantine-1.bin
+@@ -0,0 +1 @@
++{"action_id": "R-7003", "digest": "half
+\ No newline at end of file
+diff --git a/example/run/probe-reply/host-E.jsonl b/example/run/probe-reply/host-E.jsonl
+new file mode 100644
+index 0000000..971c73d
+--- /dev/null
++++ b/example/run/probe-reply/host-E.jsonl
+@@ -0,0 +1,4 @@
++{"action_id": "E-6006", "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "kind": "proposal", "phase": "PROPOSAL", "run": "initial", "scenario": "E", "step": 1}
++{"action_id": "E-6006", "kind": "guard_decision", "phase": "GUARD_DECISION", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": null, "run": "initial", "scenario": "E", "step": 2, "verdict": "ALLOW"}
++{"action_id": "E-6006", "command": "verdict", "kind": "reply_rejected", "phase": "REPLY_REJECTED", "problems": ["reply names 'S-0000', the request was 'E-6006'"], "run": "initial", "scenario": "E", "step": 3}
++{"action_id": "E-6006", "kind": "effect_withheld", "phase": "EFFECT_WITHHELD", "reason": "store reply rejected", "run": "initial", "scenario": "E", "step": 4}
+diff --git a/example/run/reconciled.json b/example/run/reconciled.json
+index c976bfa..ac05974 100644
+--- a/example/run/reconciled.json
++++ b/example/run/reconciled.json
+@@ -18,6 +18,12 @@
+       "reason": "id issued, never resolved, content unknown",
+       "strength": "name only"
+     },
++    {
++      "action_id": "C-9009",
++      "content": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
++      "reason": "proposal committed, no verdict recorded",
++      "strength": "content"
++    },
+     {
+       "action_id": "D-4005",
+       "content": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
+diff --git a/example/run/store-state.json b/example/run/store-state.json
+index 3485b9b..c57e583 100644
+--- a/example/run/store-state.json
++++ b/example/run/store-state.json
+@@ -1,9 +1,13 @@
+ {
+   "commitments": [
+     "C-3003",
++    "C-9009",
+     "D-4004",
+     "D-4005"
+   ],
++  "conflicted_verdicts": [
++    "C-9009"
++  ],
+   "expectations": [
+     "A-1042"
+   ],
+@@ -26,6 +30,12 @@
+       "reason": "id issued, never resolved, content unknown",
+       "strength": "name only"
+     },
++    {
++      "action_id": "C-9009",
++      "content": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
++      "reason": "proposal committed, no verdict recorded",
++      "strength": "content"
++    },
+     {
+       "action_id": "D-4005",
+       "content": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f",
+@@ -36,15 +46,18 @@
+   "issued": [
+     "C-3003",
+     "C-3004",
++    "C-9009",
+     "D-4004",
+     "D-4005"
+   ],
+   "ok": true,
+   "unverified_verdicts": [
++    "C-9009",
+     "D-4005"
+   ],
+   "verdicts": [
+     "B-2001",
++    "C-9009",
+     "D-4004",
+     "D-4005"
+   ]
+diff --git a/example/run/store.jsonl b/example/run/store.jsonl
+index 890397d..c82a123 100644
+--- a/example/run/store.jsonl
++++ b/example/run/store.jsonl
+@@ -1,6 +1,6 @@
+-{"digest": "b0b3bd162b4429ddcf2473a0b2bdbb47", "kind": "boot", "replayed_seq": 0, "store_seq": 1}
++{"digest": "39c7a2f6eb8675b8f4741f58e29149ce", "kind": "boot", "replayed_records": 0, "store_seq": 1}
+ {"action_id": "A-1042", "digest": "faac1cd072388c8d1721343432ba8625", "kind": "expectation", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "store_seq": 2}
+-{"digest": "33d7f2a37e376e16a2b6fb409bccd5ed", "kind": "boot", "replayed_seq": 2, "store_seq": 3}
++{"digest": "65eec07f7ea6db4236673442b74ff6d2", "kind": "boot", "replayed_records": 2, "store_seq": 3}
+ {"action_id": "B-2001", "digest": "3d7e75a0109bc3b6b0b3c9c6b0604a2b", "kind": "verdict", "record": {"action_id": "B-2001", "decided_by": "guard-key-1", "decision_ts": 2, "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": "R7", "signature": "b5771cbed9c5858f6e4d82a994be60d93afaf093116a20d78bb80fccd9400a52", "verdict": "BLOCK"}, "state": "verified", "store_seq": 4}
+ {"action_id": "C-3003", "digest": "07f71a35c27c99e1953d05bc97174676", "kind": "issued", "store_seq": 5}
+ {"action_id": "C-3003", "descriptor_sha": "sha256:3e76ead0e1297c2cd1b4bea49f14afe84856b9491275e27a1494f87e41842232", "digest": "608742ebff06d1ff758f8dc4df85a23e", "kind": "commitment", "store_seq": 6}
+@@ -11,3 +11,8 @@
+ {"action_id": "D-4005", "digest": "9ba90686f8f242cc7f2a24db948eda67", "kind": "issued", "store_seq": 11}
+ {"action_id": "D-4005", "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "digest": "cedbd0255d55d02854948a2ad8ad750a", "kind": "commitment", "store_seq": 12}
+ {"action_id": "D-4005", "digest": "01377fb54753ecf9e89d0db56f20334c", "kind": "verdict", "record": {"action_id": "D-4005", "decided_by": "guard-key-1", "decision_ts": 2, "descriptor_sha": "sha256:a75253d10eeba32f4828466dc350a129e1037c5620317c2745fd1206fa6e522f", "effect_ref": "rcpt:sha256:fbfefc6823c6f4bb873df55878e04582e823ba4b119ab710f61583e3719baf1a", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": null, "signature": null, "verdict": "ALLOW"}, "state": "unverified", "store_seq": 13}
++{"action_id": "C-9009", "digest": "0ef5c719b29fd38a4bac441b46341bfa", "kind": "issued", "store_seq": 14}
++{"action_id": "C-9009", "descriptor_sha": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "digest": "57431eb0e870050c4577bc4449d58868", "kind": "commitment", "store_seq": 15}
++{"action_id": "C-9009", "digest": "12727516f1d01997e160b7f204eb1af3", "kind": "verdict", "record": {"action_id": "C-9009", "decided_by": "guard-key-1", "decision_ts": 4, "descriptor_sha": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": "R7", "signature": "c8249dc8c57cd09101b2b5fc72e0ffa4509874c81d87de193bd6a86997f97ba0", "verdict": "BLOCK"}, "state": "verified", "store_seq": 16}
++{"action_id": "C-9009", "digest": "0f2570ab6f5b6fc02998168ddbf8eec8", "kind": "verdict", "record": {"action_id": "C-9009", "decided_by": "guard-key-1", "decision_ts": 5, "descriptor_sha": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1", "rule": null, "signature": "9bbc75486e933fd31f1cb441acc1ac28067ebd5d146aa0a32b9d978dea2e2075", "verdict": "ALLOW"}, "state": "verified", "store_seq": 17}
++{"action_id": "C-9009", "digest": "1eb027b406a861ead565d4eaf250d8ba", "first_seq": 16, "first_verdict": "BLOCK", "kind": "conflict", "rule": "two different verdicts for one action id: neither resolves the gap", "second_seq": 17, "second_verdict": "ALLOW", "store_seq": 18}
+diff --git a/run.py b/run.py
+index 06b7fdb..598044d 100644
+--- a/run.py
++++ b/run.py
+@@ -23,12 +23,22 @@ import time
+ REQUIRED_ARTIFACTS = ["store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
+                       "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
+                       "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "store-state.json",
+-                      "lookups.json"]
++                      "lookups.json",
++                      # The probes: small, separate, and named for the property each one
++                      # isolates, so a failure in one does not read as a failure in the suite.
++                      "probe-durability/journal.jsonl", "probe-durability/result.json",
++                      "probe-repair/journal.jsonl",
++                      "probe-repair/journal.jsonl.quarantine-1.bin",
++                      "probe-reply/host-E.jsonl"]
+ 
+ HERE = os.path.dirname(os.path.abspath(__file__))
+ BENCH = os.path.join(HERE, "bench")
+ STORE = os.path.join(BENCH, "store.py")
+ HOST = os.path.join(BENCH, "host.py")
++STUB = os.path.join(BENCH, "stub_store.py")
++
++sys.path.insert(0, BENCH)
++from common import DECIDED_BY, POLICY_SHA, frame, record_payload, sign  # noqa: E402
+ 
+ # scenario name, extra host flags
+ SCENARIOS = [
+@@ -42,6 +52,21 @@ SCENARIOS = [
+ ]
+ 
+ 
++def announce_port(proc, port_file, what="store"):
++    """Wait for a process to write its port, and say plainly if it never does."""
++    deadline = time.time() + 10
++    while time.time() < deadline:
++        if os.path.exists(port_file):
++            with open(port_file, encoding="utf-8") as fh:
++                text = fh.read().strip()
++            if text:
++                return int(text)
++        if proc.poll() is not None:
++            raise SystemExit("%s exited during startup: %s" % (what, proc.stderr.read()))
++        time.sleep(0.02)
++    raise SystemExit("%s did not announce a port within 10 seconds" % what)
++
++
+ class StoreProcess:
+     def __init__(self, rundir):
+         self.rundir = rundir
+@@ -57,18 +82,7 @@ class StoreProcess:
+              "--announce", self.port_file],
+             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+         )
+-        deadline = time.time() + 10
+-        while time.time() < deadline:
+-            if os.path.exists(self.port_file):
+-                with open(self.port_file, encoding="utf-8") as fh:
+-                    text = fh.read().strip()
+-                if text:
+-                    self.port = int(text)
+-                    return
+-            if self.proc.poll() is not None:
+-                raise SystemExit("store exited during startup: %s" % self.proc.stderr.read())
+-            time.sleep(0.02)
+-        raise SystemExit("store did not announce a port within 10 seconds")
++        self.port = announce_port(self.proc, self.port_file)
+ 
+     def stop(self):
+         if self.proc and self.proc.poll() is None:
+@@ -101,6 +115,138 @@ def run_host(scenario, port, rundir, flags):
+     return proc
+ 
+ 
++def stop(proc):
++    if proc is None:
++        return
++    if proc.poll() is None:
++        proc.terminate()
++        try:
++            proc.wait(timeout=5)
++        except subprocess.TimeoutExpired:
++            proc.kill()
++    for stream in (proc.stdout, proc.stderr):
++        if stream:
++            stream.close()
++
++
++def launch_store(rundir, journal, env=None, announce_name="port.txt"):
++    """Start a store on a named journal, from a named directory, with an environment."""
++    announce = os.path.join(rundir, announce_name)
++    if os.path.exists(announce):
++        os.remove(announce)
++    proc = subprocess.Popen(
++        [sys.executable, STORE, "--journal", journal, "--announce", announce],
++        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
++        env=dict(os.environ, **(env or {})),
++    )
++    return proc, announce_port(proc, announce)
++
++
++def write_json(path, payload):
++    with open(path, "w", encoding="utf-8", newline="\n") as fh:
++        json.dump(payload, fh, indent=2, sort_keys=True)
++
++
++def probe_durability(rundir):
++    """F11: the journal refuses a verdict write. Nothing may be known that is not on disk.
++
++    The failpoint refuses before the bytes are written, which is the exact moment the order of
++    the two operations decides the answer: journal then memory leaves nothing behind, memory
++    then journal leaves a store that reports a decision it could not keep.
++    """
++    pdir = os.path.join(rundir, "probe-durability")
++    os.makedirs(pdir, exist_ok=True)
++    journal = os.path.join(pdir, "journal.jsonl")
++    aid = "P-9001"
++    record = {"action_id": aid, "policy_sha": POLICY_SHA, "decided_by": DECIDED_BY,
++              "verdict": "BLOCK", "rule": "R7", "descriptor_sha": "sha256:" + "0" * 64,
++              "decision_ts": 3}
++    record["signature"] = sign(record_payload(record))
++    result = {}
++    proc, port = launch_store(pdir, journal, {"HFB_FAILPOINT": "verdict"})
++    try:
++        result["issue"] = call(port, {"cmd": "issue", "action_id": aid})
++        result["expect"] = call(port, {"cmd": "expect", "action_id": aid,
++                                       "policy_sha": POLICY_SHA})
++        result["verdict"] = call(port, {"cmd": "verdict", "record": record})
++        result["lookup_same_process"] = call(port, {"cmd": "lookup", "action_id": aid})
++    finally:
++        stop(proc)
++    proc, port = launch_store(pdir, journal)
++    try:
++        result["lookup_after_restart"] = call(port, {"cmd": "lookup", "action_id": aid})
++        result["state_after_restart"] = call(port, {"cmd": "state"})
++    finally:
++        stop(proc)
++    result["action_id"] = aid
++    write_json(os.path.join(pdir, "result.json"), result)
++
++
++def probe_repair(rundir):
++    """F7: a torn journal is repaired, and the bytes it loses are kept rather than dropped."""
++    pdir = os.path.join(rundir, "probe-repair")
++    os.makedirs(pdir, exist_ok=True)
++    journal = os.path.join(pdir, "journal.jsonl")
++    lines = []
++    for seq, aid in ((1, "R-7001"), (2, "R-7002")):
++        rec = {"kind": "issued", "action_id": aid, "store_seq": seq}
++        rec["digest"] = frame(rec)
++        lines.append(json.dumps(rec, sort_keys=True))
++    # The third record stops in the middle, the way a crash during an append leaves it.
++    torn = '{"action_id": "R-7003", "digest": "half', 0
++    with open(journal, "w", encoding="utf-8", newline="\n") as fh:
++        fh.write("\n".join(lines) + "\n" + torn[0])
++        fh.flush()
++        os.fsync(fh.fileno())
++    proc, _port = launch_store(pdir, journal)
++    stop(proc)
++
++
++def probe_conflict(port, rundir):
++    """F9: two signed verdicts for one action. The store says so instead of picking one."""
++    aid = "C-9009"
++    call(port, {"cmd": "issue", "action_id": aid})
++    call(port, {"cmd": "commit", "action_id": aid, "descriptor_sha": "sha256:" + "1" * 64})
++    first = {"action_id": aid, "policy_sha": POLICY_SHA, "decided_by": DECIDED_BY,
++             "verdict": "BLOCK", "rule": "R7", "descriptor_sha": "sha256:" + "1" * 64,
++             "decision_ts": 4}
++    first["signature"] = sign(record_payload(first))
++    call(port, {"cmd": "verdict", "record": first})
++    second = dict(first, verdict="ALLOW", rule=None, decision_ts=5)
++    second.pop("signature")
++    second["signature"] = sign(record_payload(second))
++    call(port, {"cmd": "verdict", "record": second})
++
++
++def probe_reply(rundir):
++    """F10: a well-formed reply about another action. It must not be read as consent."""
++    pdir = os.path.join(rundir, "probe-reply")
++    os.makedirs(pdir, exist_ok=True)
++    announce = os.path.join(pdir, "port.txt")
++    if os.path.exists(announce):
++        os.remove(announce)
++    proc = subprocess.Popen([sys.executable, STUB, "--announce", announce],
++                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
++    try:
++        port = announce_port(proc, announce, what="stub store")
++        run_host("E", port, pdir, ["--action-id", "E-6006"])
++    finally:
++        stop(proc)
++
++
++def artifact_listing(rundir):
++    """Every file the run wrote, as paths relative to the run directory."""
++    out = []
++    for root, dirs, files in os.walk(rundir):
++        dirs.sort()
++        for name in sorted(files):
++            rel = os.path.relpath(os.path.join(root, name), rundir).replace(os.sep, "/")
++            if rel.endswith("port.txt"):
++                continue
++            out.append(rel)
++    return sorted(out)
++
++
+ def main(argv):
+     base = time.strftime("run-%Y%m%dT%H%M%SZ", time.gmtime())
+     rundir = os.path.join(HERE, "artifacts", base)
+@@ -138,18 +284,27 @@ def main(argv):
+                "D": "D-4004", "D'": "D-4005"}[scenario]
+         lookups[scenario] = call(store.port, {"cmd": "lookup", "action_id": aid})
+ 
++    print("[probe] conflict: two verdicts for one action id")
++    probe_conflict(store.port, rundir)
++
+     reconciled = call(store.port, {"cmd": "reconcile"})
+     state = call(store.port, {"cmd": "state"})
+     lookups["A"] = call(store.port, {"cmd": "lookup", "action_id": "A-1042"})
+     lookups["A'"] = call(store.port, {"cmd": "lookup", "action_id": "A-1043"})
+     lookups["B"] = call(store.port, {"cmd": "lookup", "action_id": "B-2001"})
+ 
+-    with open(os.path.join(rundir, "reconciled.json"), "w", encoding="utf-8", newline="\n") as fh:
+-        json.dump(reconciled, fh, indent=2, sort_keys=True)
+-    with open(os.path.join(rundir, "store-state.json"), "w", encoding="utf-8", newline="\n") as fh:
+-        json.dump(state, fh, indent=2, sort_keys=True)
+-    with open(os.path.join(rundir, "lookups.json"), "w", encoding="utf-8", newline="\n") as fh:
+-        json.dump(lookups, fh, indent=2, sort_keys=True)
++    write_json(os.path.join(rundir, "reconciled.json"), reconciled)
++    write_json(os.path.join(rundir, "store-state.json"), state)
++    write_json(os.path.join(rundir, "lookups.json"), lookups)
++
++    # The probes run against their own journals except the conflict one, which needs the main
++    # store to be able to show what a duplicate verdict does to an action already recorded.
++    print("[probe] durability: a journal that refuses a verdict write")
++    probe_durability(rundir)
++    print("[probe] repair: a torn journal, and where its tail goes")
++    probe_repair(rundir)
++    print("[probe] reply: a store that confirms the wrong action")
++    probe_reply(rundir)
+ 
+     # Written last, and without the port file: the port changes per run, and the rest of this
+     # suite is byte-identical between runs. The manifest is the claim about what should be here.
+@@ -158,7 +313,7 @@ def main(argv):
+         "python": sys.version.split()[0],
+         "scenarios": [s for s, _ in SCENARIOS] + ["B"],
+         "required": sorted(REQUIRED_ARTIFACTS),
+-        "artifacts": sorted(name for name in os.listdir(rundir) if name != "port.txt"),
++        "artifacts": artifact_listing(rundir),
+     }
+     with open(os.path.join(rundir, "manifest.json"), "w", encoding="utf-8", newline="\n") as fh:
+         json.dump(manifest, fh, indent=2, sort_keys=True)
+diff --git a/verify.py b/verify.py
+index 9ae5a49..7ba561f 100644
+--- a/verify.py
++++ b/verify.py
+@@ -11,6 +11,7 @@ lookups. Nothing here reads a pass flag, because nothing writes one.
+ Exit code is 0 only if every check passes. A missing artifact is a failure, not a skip.
+ """
+ 
++import hashlib
+ import hmac
+ import json
+ import os
+@@ -130,7 +131,8 @@ def recompute_gaps(store_records):
+     If this function and the store disagree, the store's own summary is the thing that is
+     wrong, and the reader has to see that rather than a comfortable pass.
+     """
+-    issued, commitments, expectations, verdicts = set(), {}, set(), set()
++    issued, commitments, expectations = set(), {}, set()
++    verdict_rows = {}
+     for rec in store_records:
+         kind, aid = rec.get("kind"), rec.get("action_id")
+         if kind == "issued":
+@@ -140,10 +142,18 @@ def recompute_gaps(store_records):
+         elif kind == "expectation":
+             expectations.add(aid)
+         elif kind == "verdict":
+-            # A record that exists is not a decision that is known. Only a verdict whose
+-            # binding verifies closes a gap, in the verifier as well as in the store.
+-            if verdict_state(rec) == "verified":
+-                verdicts.add(aid)
++            verdict_rows.setdefault(aid, []).append(rec)
++
++    # A record that exists is not a decision that is known. Only a verdict whose binding
++    # verifies closes a gap, and two verdicts that disagree close nothing: whichever one a
++    # reader happened to load first must not become the answer.
++    verdicts = set()
++    for aid, rows in verdict_rows.items():
++        first = rows[0]
++        if any(row.get("record") != first.get("record") for row in rows[1:]):
++            continue
++        if verdict_state(first) == "verified":
++            verdicts.add(aid)
+ 
+     gaps = []
+     for aid in sorted(issued | expectations):
+@@ -413,6 +423,110 @@ def _verify_run(rundir):
+          "quarantined": stored_dp is not None and not dp_ok},
+     )
+ 
++    # -- F11: the journal refuses a write, so nothing may be known ------------------------
++    durability = read_json(os.path.join(rundir, "probe-durability", "result.json"))
++    probe_store = read_jsonl(os.path.join(rundir, "probe-durability", "journal.jsonl"))
++    probe_id = (durability or {}).get("action_id")
++    probe_verdict_rows = [r for r in (probe_store or [])
++                          if r.get("kind") == "verdict" and r.get("action_id") == probe_id]
++    verdict_reply = (durability or {}).get("verdict") or {}
++    live_lookup = (durability or {}).get("lookup_same_process") or {}
++    restart_lookup = (durability or {}).get("lookup_after_restart") or {}
++    check(
++        "journal-first", "P",
++        "a store that cannot journal a verdict does not report it as known, in memory or "
++        "after a restart, so an acknowledged decision is always one a recovery could also find",
++        "if the store answers from memory while the journal is behind, it has reported a "
++        "decision it could not keep and every count taken from it during that window is wrong",
++        bool(durability) and verdict_reply.get("ok") is False
++        and live_lookup.get("verdict") is None
++        and restart_lookup.get("verdict") is None
++        and not probe_verdict_rows,
++        {"verdict_reply": verdict_reply.get("ok"),
++         "durable_flag": verdict_reply.get("durable"),
++         "error": verdict_reply.get("error"),
++         "verdict_in_memory": live_lookup.get("verdict") is not None,
++         "verdict_after_restart": restart_lookup.get("verdict") is not None,
++         "verdict_records_in_probe_journal": len(probe_verdict_rows)},
++    )
++
++    # -- F7: repair keeps the bytes it discards -------------------------------------------
++    repair_journal = read_jsonl(os.path.join(rundir, "probe-repair", "journal.jsonl")) or []
++    repairs = [r for r in repair_journal if r.get("kind") == "repair"]
++    repair = repairs[0] if len(repairs) == 1 else None
++    quarantine_path = os.path.join(rundir, "probe-repair", (repair or {}).get("quarantine") or "")
++    quarantine_bytes = None
++    quarantine_sha = None
++    if repair and os.path.exists(quarantine_path):
++        with open(quarantine_path, "rb") as fh:
++            tail = fh.read()
++        quarantine_bytes = len(tail)
++        quarantine_sha = hashlib.sha256(tail).hexdigest()
++    check(
++        "repair-quarantine", "P",
++        "a repair that shortens a journal keeps the bytes it removed, so what was in flight "
++        "when the write stopped survives the truncation",
++        "if repair drops the tail, the only record of the interrupted write is destroyed by "
++        "the recovery, and a crash and a silent deletion become the same event afterwards",
++        bool(repair) and (repair.get("discarded_bytes") or 0) > 0
++        and quarantine_bytes == repair.get("quarantine_bytes") == repair.get("discarded_bytes")
++        and quarantine_sha == repair.get("quarantine_sha256"),
++        {"repair_records": len(repairs),
++         "discarded_bytes": (repair or {}).get("discarded_bytes"),
++         "quarantine": (repair or {}).get("quarantine"),
++         "quarantine_exists": os.path.exists(quarantine_path),
++         "quarantine_bytes": quarantine_bytes,
++         "digest_matches": quarantine_sha == (repair or {}).get("quarantine_sha256")},
++    )
++
++    # -- F9: two verdicts for one action ---------------------------------------------------
++    conflict_id = "C-9009"
++    conflict_verdicts = [r for r in store
++                         if r.get("kind") == "verdict" and r.get("action_id") == conflict_id]
++    conflict_records = [r for r in store
++                        if r.get("kind") == "conflict" and r.get("action_id") == conflict_id]
++    conflicted_state = (read_json(os.path.join(rundir, "store-state.json")) or {})
++    named_conflict = conflict_records[0] if len(conflict_records) == 1 else None
++    check(
++        "conflict", "P",
++        "two verdicts that disagree are recorded as a conflict with both sequence numbers, and "
++        "the action stays unresolved instead of resolving to whichever record was read first",
++        "if a duplicate verdict silently becomes the answer, the record that loses is invisible "
++        "and the result depends on file order rather than on evidence",
++        len(conflict_verdicts) == 2 and named_conflict is not None
++        and {named_conflict.get("first_seq"), named_conflict.get("second_seq")}
++        == {r.get("store_seq") for r in conflict_verdicts}
++        and conflict_id in (conflicted_state.get("conflicted_verdicts") or [])
++        and find_gap(gaps, conflict_id) is not None,
++        {"verdict_records": [r.get("store_seq") for r in conflict_verdicts],
++         "conflict_record": named_conflict.get("store_seq") if named_conflict else None,
++         "named_in_state": conflict_id in (conflicted_state.get("conflicted_verdicts") or []),
++         "still_a_gap": find_gap(gaps, conflict_id) is not None},
++    )
++
++    # -- F10: a reply is not consent -------------------------------------------------------
++    reply_events = []
++    try:
++        reply_events = read_jsonl(os.path.join(rundir, "probe-reply", "host-E.jsonl")) or []
++    except Unreadable:
++        reply_events = []
++    rejected = [e for e in reply_events if e.get("kind") == "reply_rejected"]
++    committed = [e for e in reply_events if e.get("kind") == "effect_committed"]
++    wrong_id_named = any("S-" in problem for e in rejected
++                         for problem in (e.get("problems") or []))
++    check(
++        "reply-checked", "P",
++        "the host logs an effect only when the store's reply names the action that was asked "
++        "about, so a well-formed answer to a different question is refused",
++        "if any well-formed reply counts as consent, a store that answers about the wrong "
++        "action id can authorise an effect the host was never granted",
++        bool(rejected) and not committed and wrong_id_named
++        and any(e.get("command") == "verdict" for e in rejected),
++        {"reply_rejected": len(rejected), "effect_committed": len(committed),
++         "mismatch_named": wrong_id_named,
++         "problems": [p for e in rejected for p in (e.get("problems") or [])]},
++    )
++
+     # -- completeness: every named artifact, and proof that each scenario ran ---------------
+     # A missing journal used to be read as "that scenario had nothing to say". It is not:
+     # the artifacts are the evidence, and an absent artifact is an absent result.
+@@ -483,7 +597,8 @@ def _verify_run(rundir):
+ 
+     # -- the honesty checks ----------------------------------------------------------------
+     crlf = [name for name in ARTIFACT_FILES
+-            if (read_bytes(rundir, name) or b"").find(b"\r\n") >= 0]
++            if not name.endswith(".bin")
++            and (read_bytes(rundir, name) or b"").find(b"\r\n") >= 0]
+     check(
+         "line-endings", "meta",
+         "every artifact uses one newline convention, so a run on Windows is the same bytes as a "
+@@ -520,12 +635,18 @@ SCENARIO_EVENTS = {
+     "host-D.jsonl": ("proposal", "guard_decision", "ship_ok", "effect_committed"),
+     "host-Dp.jsonl": ("proposal", "guard_decision", "signature_stripped", "ship_ok",
+                       "effect_committed"),
++    "probe-reply/host-E.jsonl": ("proposal", "guard_decision", "reply_rejected",
++                                 "effect_withheld"),
+ }
+ 
++PROBE_FILES = ["probe-durability/journal.jsonl", "probe-durability/result.json",
++               "probe-repair/journal.jsonl", "probe-repair/journal.jsonl.quarantine-1.bin",
++               "probe-reply/host-E.jsonl"]
++
+ ARTIFACT_FILES = ["store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
+                   "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
+                   "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "store-state.json",
+-                  "lookups.json"]
++                  "lookups.json"] + PROBE_FILES
+ 
+ 
+ def compare_determinism(first, second):

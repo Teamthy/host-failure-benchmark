@@ -2,7 +2,7 @@
 """Break the artifacts on purpose and confirm verification notices.
 
 A checker that cannot fail is a decoration. This script takes a finished run, damages the record
-in nine specific ways, and requires that the damage be caught by the check that claims to catch
+in ten specific ways, and requires that the damage be caught by the check that claims to catch
 it. If a mutation slips through, the check it targets is not measuring what it says it measures.
 
     python challenge.py artifacts/run-20261101T120000Z
@@ -20,7 +20,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "bench"))
 
-from common import record_payload, sign  # noqa: E402
+from common import frame, record_payload, sign  # noqa: E402
 
 VERIFY = os.path.join(HERE, "verify.py")
 
@@ -36,9 +36,30 @@ def save_store(path, records):
             fh.write(json.dumps(rec, sort_keys=True) + "\n")
 
 
+def copy_run(rundir, work):
+    """Copy the whole run, probe directories included.
+
+    Copying only the top level of files left every mutation looking like a run with missing
+    probes, which made some checks fail for a reason that had nothing to do with the damage.
+    """
+    for root, dirs, files in os.walk(rundir):
+        rel = os.path.relpath(root, rundir)
+        target = work if rel == "." else os.path.join(work, rel)
+        os.makedirs(target, exist_ok=True)
+        for name in files:
+            shutil.copy2(os.path.join(root, name), os.path.join(target, name))
+
+
 def renumber(records):
+    """Resequence and reframe.
+
+    Editing a journal without recomputing its frames would make every mutation fail the frame
+    check, and a mutation that is caught for the wrong reason has not tested the check it names.
+    The one mutation that is supposed to leave a stale frame breaks it afterwards, on the file.
+    """
     for index, rec in enumerate(records, start=1):
         rec["store_seq"] = index
+        rec["digest"] = frame(rec)
     return records
 
 
@@ -109,13 +130,28 @@ def cut_tail(path):
         fh.write(data[: len(data) - 40])
 
 
+def drop_conflict(records):
+    """The store keeps both verdicts and drops the record saying they disagree."""
+    return ([r for r in records if r.get("kind") != "conflict"],
+            "the conflict record between the two verdicts for C-9009 is gone")
+
+
 def break_a_frame(records):
-    """A record is edited and its frame is left as it was, as a careless editor would leave it."""
-    for rec in records:
-        if rec.get("kind") == "expectation":
-            rec["policy_sha"] = "sha256:" + "f" * 64
-            break
+    """A record is edited and its frame is left as it was, as a careless editor would leave it.
+
+    The edit happens in `stale_frame`, after the journal has been reframed, so the only thing
+    damaged is the frame itself.
+    """
     return records, "an expectation was edited and its frame was not recomputed"
+
+
+def stale_frame(path):
+    rows = load_store(path)
+    for row in rows:
+        if row.get("kind") == "expectation":
+            row["policy_sha"] = "sha256:" + "f" * 64
+            break
+    save_store(path, rows)
 
 
 def to_crlf(path):
@@ -134,7 +170,8 @@ MUTATIONS = [
     ("dirty-the-signature", dirty_the_signature, {"D"}),
     ("crlf-the-journal", (crlf_the_journal, to_crlf), {"line-endings"}),
     ("torn-tail", (torn_tail, cut_tail), {"artifacts-readable"}),
-    ("break-a-frame", break_a_frame, {"store-records-framed"}),
+    ("break-a-frame", (break_a_frame, stale_frame), {"store-records-framed"}),
+    ("drop-conflict", drop_conflict, {"conflict"}),
 ]
 
 
@@ -148,10 +185,7 @@ def baseline(rundir):
 
 def run_mutation(rundir, name, mutate):
     work = tempfile.mkdtemp(prefix="challenge-%s-" % name)
-    for entry in os.listdir(rundir):
-        src = os.path.join(rundir, entry)
-        if os.path.isfile(src):
-            shutil.copy2(src, os.path.join(work, entry))
+    copy_run(rundir, work)
     store_path = os.path.join(work, "store.jsonl")
     post = None
     if isinstance(mutate, tuple):
