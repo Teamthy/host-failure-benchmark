@@ -95,24 +95,45 @@ def patch_driver(repo: str) -> None:
         fh.write(source)
 
 
-def run_suite(repo: str, env: dict | None = None) -> str:
+EXPECTED_ARTIFACTS = ("store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
+                      "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
+                      "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "manifest.json")
+
+
+def run_suite(repo: str, env: dict | None = None, attempts: int = 3) -> str:
     """Run the suite in a fresh copy and return the directory it wrote.
 
     The directory is found by looking at what appeared under artifacts/, not by
     parsing what run.py printed: the printed path uses the platform separator,
     and a Windows run and a Linux run should not need different parsing.
+
+    A run that fails partway still leaves its directory behind, so the presence
+    of a directory is not evidence that the scenario ran. Each attempt is
+    checked for the artifacts a complete run writes, and retried: on Windows,
+    the store sometimes needs longer than its ten second budget to announce on
+    a freshly copied tree, and one retry is cheaper than a flaky suite.
     """
-    before = set(os.listdir(os.path.join(repo, "artifacts"))) \
-        if os.path.isdir(os.path.join(repo, "artifacts")) else set()
-    proc = subprocess.run([sys.executable, "run.py"], cwd=repo, capture_output=True,
-                          text=True, env=env)
     artifacts = os.path.join(repo, "artifacts")
-    after = set(os.listdir(artifacts)) if os.path.isdir(artifacts) else set()
-    new_dirs = sorted(name for name in after - before if name.startswith("run-"))
-    if not new_dirs:
-        sys.stderr.write(proc.stdout[-1500:] + proc.stderr[-1500:])
-        raise SystemExit("run.py produced no artifact directory")
-    return os.path.join(artifacts, new_dirs[-1])
+    last = ""
+    for attempt in range(1, attempts + 1):
+        before = set(os.listdir(artifacts)) if os.path.isdir(artifacts) else set()
+        proc = subprocess.run([sys.executable, "run.py"], cwd=repo, capture_output=True,
+                              text=True, env=env)
+        after = set(os.listdir(artifacts)) if os.path.isdir(artifacts) else set()
+        new_dirs = sorted(name for name in after - before if name.startswith("run-"))
+        if not new_dirs:
+            last = "run.py produced no artifact directory (exit %d)" % proc.returncode
+            continue
+        rundir = os.path.join(artifacts, new_dirs[-1])
+        missing = [name for name in EXPECTED_ARTIFACTS
+                   if not os.path.exists(os.path.join(rundir, name))]
+        if not missing and proc.returncode == 0:
+            return rundir
+        last = ("run.py exited %d and left %s missing from %s"
+                % (proc.returncode, ", ".join(missing) or "nothing", os.path.basename(rundir)))
+        time.sleep(1)
+    sys.stderr.write(proc.stdout[-1500:] + proc.stderr[-1500:])
+    raise SystemExit("the suite did not complete for this mode: %s" % last)
 
 
 def bench_import(repo: str):
