@@ -49,7 +49,7 @@ On any other system the same three commands with `artifacts/run-...` in place of
 
 `run.py` prints the directory it wrote. `verify.py` takes that directory and re-derives every assertion from the raw files inside it: the store journal, the write-ahead log, the per-scenario host journals. It does not read a pass flag, because nothing writes one.
 
-`challenge.py` takes a finished run and damages it ten ways, then requires that the check claiming to catch each kind of damage does catch it. A checker that cannot fail is decoration.
+`challenge.py` takes a finished run and damages it ten ways, then requires that the check claiming to catch each kind of damage does catch it. It also points the verifier at a directory that is not a run, and compares a run against a copy missing artifacts; both have to be refused. A checker that cannot fail is decoration.
 
 `audit/regressions.py` is the same idea with harder mutations, one per finding in the November 2026 review. Each of them passed verification before that review and has to be caught now:
 

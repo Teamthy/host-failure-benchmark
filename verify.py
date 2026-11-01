@@ -650,16 +650,26 @@ ARTIFACT_FILES = ["store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl"
 
 
 def compare_determinism(first, second):
-    files = ARTIFACT_FILES
-    same = all(read_bytes(first, f) == read_bytes(second, f) for f in files)
-    differing = [f for f in files if read_bytes(first, f) != read_bytes(second, f)]
+    """Two directories, both readable, all artifacts present, then equal bytes.
+
+    Two directories that do not exist are equal in the only sense a file comparison can see,
+    which is no sense at all: absent compared to absent is a match. This check used to report
+    that as determinism holding, which is the same defect class as a missing artifact passing
+    a completeness check.
+    """
+    absent_dirs = [path for path in (first, second) if not os.path.isdir(path)]
+    missing = sorted({f for f in ARTIFACT_FILES for path in (first, second)
+                      if read_bytes(path, f) is None})
+    differing = [f for f in ARTIFACT_FILES if read_bytes(first, f) != read_bytes(second, f)]
     check(
         "determinism", "meta",
         "two runs of the suite produce identical artifacts, so a result can be reproduced by "
         "anyone without trusting the machine it ran on",
         "if any artifact differs between runs, the suite reports the machine as much as the "
-        "failure",
-        same, {"differing": differing},
+        "failure; if either directory or any artifact is missing, nothing was compared",
+        not absent_dirs and not missing and not differing,
+        {"differing": differing, "missing_directories": absent_dirs,
+         "missing_artifacts": missing},
     )
 
 
@@ -692,7 +702,18 @@ def report(rundir):
     print("")
     print("VERDICT: %s" % ("every check holds" if not failures
                            else "%d check(s) failed" % len(failures)))
-    with open(os.path.join(rundir, "verify-report.json"), "w", encoding="utf-8", newline="\n") as fh:
+    report_path = os.path.join(rundir, "verify-report.json")
+    try:
+        report_file = open(report_path, "w", encoding="utf-8", newline="\n")
+    except OSError as exc:
+        # The verdict above is already on stdout. A directory that cannot hold the report is
+        # not a reason to raise: the reader gets the result and an explanation of what is not
+        # in the directory.
+        print("")
+        print("verify-report.json was not written (%s)." % exc)
+        print("The verdict above stands; the report file is missing, not the judgement.")
+        return 0 if not failures else 1
+    with report_file as fh:
         json.dump({"checks": RESULTS,
                    "summary": {"class_P": [p_held, len(p_rows)],
                                "class_V": [v_held, len(v_rows)],
@@ -714,6 +735,10 @@ def main(argv):
         print(__doc__)
         return 2
     rundir = argv[1]
+    if not os.path.isdir(rundir):
+        print("no run directory at %s" % rundir)
+        print("Nothing was verified. This is not a pass, and it is not a failure of a run.")
+        return 2
     verify_run(rundir)
     if len(argv) > 2:
         compare_determinism(rundir, argv[2])

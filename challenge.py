@@ -5,6 +5,11 @@ A checker that cannot fail is a decoration. This script takes a finished run, da
 in ten specific ways, and requires that the damage be caught by the check that claims to catch
 it. If a mutation slips through, the check it targets is not measuring what it says it measures.
 
+It also does two things that are not mutations, because verification can fail in the other
+direction: it points the verifier at a directory that is not a run, and it compares a run against
+a copy that is missing artifacts. A verifier that raises on the first, or calls the second
+identical, has reported on nothing.
+
     python challenge.py artifacts/run-20261101T120000Z
 
 Exit code is 0 only if every mutation was caught by its expected check.
@@ -204,6 +209,43 @@ def run_mutation(rundir, name, mutate):
     return note, failed, proc.returncode
 
 
+def input_checks(rundir):
+    """The two ways of asking the verifier about something that is not a run.
+
+    Both were defects found on 1 November by mistyping a path. Neither is a claim about the
+    benchmark; both are claims the documentation makes about the verifier, which is why they
+    are tested here rather than in the regression suite.
+    """
+    results = []
+
+    missing = os.path.join(tempfile.gettempdir(), "hfb-no-such-run-4f2a")
+    proc = subprocess.run([sys.executable, VERIFY, missing], capture_output=True, text=True)
+    said = (proc.stdout or proc.stderr).strip().splitlines()
+    results.append((
+        "verifier on a directory that is not there",
+        proc.returncode == 2 and "no run directory" in proc.stdout
+        and "Traceback" not in proc.stderr and "Traceback" not in proc.stdout,
+        "exit %d, %s" % (proc.returncode, said[-1] if said else "no output"),
+    ))
+
+    work = tempfile.mkdtemp(prefix="challenge-input-")
+    copy_run(rundir, work)
+    for name in ("host-D.jsonl", "probe-reply/host-E.jsonl"):
+        path = os.path.join(work, name)
+        if os.path.exists(path):
+            os.remove(path)
+    proc = subprocess.run([sys.executable, VERIFY, rundir, work], capture_output=True, text=True)
+    with open(os.path.join(rundir, "verify-report.json"), encoding="utf-8") as fh:
+        rows = {row["id"]: row["result"] for row in json.load(fh)["checks"]}
+    results.append((
+        "determinism against a run with artifacts missing",
+        rows.get("determinism") == "fails",
+        "determinism %s" % rows.get("determinism"),
+    ))
+    shutil.rmtree(work, ignore_errors=True)
+    return results
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -224,11 +266,22 @@ def main(argv):
             missed.append((name, sorted(failed), code))
 
     print("")
+    input_missed = []
+    for name, held, detail in input_checks(rundir):
+        print("%-54s %-7s %s" % (name, "held" if held else "MISSED", detail))
+        if not held:
+            input_missed.append(name)
+
+    print("")
     if missed:
         for name, failed, code in missed:
             print("UNDETECTED: %s (verify exit %s, failed: %s)"
                   % (name, code, ", ".join(failed) or "nothing"))
         print("A mutation that verification does not catch is a claim it does not support.")
+        return 1
+    if input_missed:
+        print("NOT REFUSED: %s" % ", ".join(input_missed))
+        print("Something that is not a run was not refused as something that is not a run.")
         return 1
     print("Every mutation was caught by the check that claims to catch it.")
     return 0

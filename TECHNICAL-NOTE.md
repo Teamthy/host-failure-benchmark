@@ -87,7 +87,7 @@ It is also not tested the way a production component would be: eight scenarios a
 
 ## Reproducing it
 
-Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run ten ways and requires that each kind of damage be caught by the check that claims to catch it.
+Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run ten ways and requires that each kind of damage be caught by the check that claims to catch it. It also requires two things of the verifier's own input handling: a path that is not a run is refused rather than raised on, and a comparison is refused when either directory is missing an artifact.
 
 Every check is written as a claim paired with the counterclaim that would refute it. When one fails, the output names the thing that refused it.
 
