@@ -35,6 +35,12 @@ def verify(payload, signature):
     return hmac.compare_digest(sign(payload), signature)
 
 
+def frame(record):
+    """Per-record frame digest. A torn write stops being a silent truncation."""
+    body = {k: v for k, v in record.items() if k != "digest"}
+    return hashlib.sha256(canonical(body)).hexdigest()[:32]
+
+
 def digest(payload):
     return "sha256:" + hashlib.sha256(canonical(payload)).hexdigest()
 

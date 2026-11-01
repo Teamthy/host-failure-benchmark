@@ -65,9 +65,29 @@ A signature plus a policy hash proves integrity and provenance. It does not prov
 
 The suite also only tests two processes on one machine. It says nothing about a store that is itself partitioned, an attacker with the host's filesystem, or a clock that can move backwards.
 
+## What of standard practice this implements
+
+Worth stating plainly, because a reviewer will ask and because the answer is uneven.
+
+Implemented, and implemented the way the relevant practice says to: durability before acknowledgement, so a verdict is fsynced locally before any effect is attempted; recovery by replay rather than by reset, with a marker saying what arrived before a recovery and what arrived after; identifiers issued by an independent authority rather than minted where the action happens; reconciliation against an expectation registered beforehand, which is the same idea as a control total; canonical encoding before any binding is computed; and a verifier that is a separate program reading only raw artifacts, never a pass flag written by the thing it judges.
+
+Also implemented, and this one was added after the first version of this note would have claimed otherwise: per-record framing. A crash in the middle of an append leaves a partial line, and without a frame the only thing that notices is the parser falling over. Each record now carries a digest of itself, replay stops at the last whole record, the journal is cut back to that point, and a repair record states how many bytes were discarded. A truncated history is announced rather than silently presented as the whole one.
+
+Not implemented, and these are the expensive ones:
+
+Tamper evidence against an adversary who has the source. Records are framed but not chained, so anything that can rewrite the file can rewrite it consistently, and the binding key is a literal in `common.py`, so it can re-sign what it rewrote. The pattern that addresses this is the transparent log: a hash chain over records, signed checkpoints, and an external witness. None of that is here. What is here catches accident and casual editing, not intent.
+
+Key management. A key derived from a seed in the repository is a test fixture. No hardware or managed key store, no rotation, no per-actor keys.
+
+Trusted time. The clock is a counter, deliberately, and the decision time is source-asserted. Time synchronisation is the control that would change this, and it would cost the determinism, so the trade is stated rather than hidden.
+
+Operational practice: rotation, retention, immutable storage, access control, privilege separation. The two processes run as the same user on the same disk. This is a demonstration of a discipline, not a deployment of one.
+
+It is also not tested the way a production component would be: nine scenarios, one machine, no fuzzing, no continuous integration. Which is how the torn-journal case above went unnoticed until it was looked for.
+
 ## Reproducing it
 
-Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run seven ways and requires that each kind of damage be caught by the check that claims to catch it.
+Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run nine ways and requires that each kind of damage be caught by the check that claims to catch it.
 
 Every check is written as a claim paired with the counterclaim that would refute it. When one fails, the output names the thing that refused it.
 

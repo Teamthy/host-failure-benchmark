@@ -3,6 +3,7 @@
     "commitment": null,
     "expectation": {
       "action_id": "A-1042",
+      "digest": "faac1cd072388c8d1721343432ba8625",
       "kind": "expectation",
       "policy_sha": "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1",
       "store_seq": 2

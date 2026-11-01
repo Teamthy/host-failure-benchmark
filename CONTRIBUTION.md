@@ -35,6 +35,8 @@ First commit `5bb8a7c`, 2026-11-01. Line endings pinned to LF in `.gitattributes
 | Determinism by counter clock rather than wall clock | Olusanya Timothy | Proposed |
 | Verification must re-derive from raw artifacts and never read a pass flag | Olusanya Timothy | Proposed |
 | The checks must be able to fail, tested by mutation | Olusanya Timothy | Proposed |
+| Per-record framing, and repair on replay that states what it discarded | Olusanya Timothy | Added 2026-11-01 after a torn journal produced a traceback instead of a verdict |
+| A statement of which standard practices are and are not implemented | Olusanya Timothy | Added 2026-11-01, so the gap is the authors' own account of it |
 
 ## Open decisions
 

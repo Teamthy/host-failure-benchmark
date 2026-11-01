@@ -18,25 +18,37 @@ restart is a recovery rather than a reset.
 """
 
 import argparse
+import hmac
 import json
 import os
 import socketserver
 import sys
 
+from common import frame
+
 POLICY_SHA = "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1"
 
 
 class Journal:
-    """Append-only, fsynced per record. Read back on start to rebuild state."""
+    """Append-only, fsynced per record, framed so a torn write is detectable.
+
+    Every record carries a digest of itself. A crash in the middle of a write leaves a partial
+    line, and without a frame the only thing that notices is the JSON parser falling over. So
+    replay stops at the last whole record, cuts the file back to that point, and reports how
+    many bytes it discarded. Recovery to a known state beats an exception.
+    """
 
     def __init__(self, path):
         self.path = path
         self.seq = 0
+        self.discarded = 0
+        self.unframed = 0
 
     def append(self, record):
         self.seq += 1
         record = dict(record)
         record["store_seq"] = self.seq
+        record["digest"] = frame(record)
         line = json.dumps(record, sort_keys=True)
         with open(self.path, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(line + "\n")
@@ -48,11 +60,34 @@ class Journal:
         if not os.path.exists(self.path):
             return []
         out = []
-        with open(self.path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line:
-                    out.append(json.loads(line))
+        good = 0
+        with open(self.path, "rb") as fh:
+            while True:
+                line = fh.readline()
+                if not line:
+                    break
+                offset = fh.tell()
+                stripped = line.strip()
+                if not stripped:
+                    good = offset
+                    continue
+                try:
+                    record = json.loads(stripped)
+                except ValueError:
+                    break
+                if "digest" in record:
+                    if not hmac.compare_digest(record["digest"], frame(record)):
+                        break
+                else:
+                    self.unframed += 1
+                out.append(record)
+                good = offset
+        if good < os.path.getsize(self.path):
+            self.discarded = os.path.getsize(self.path) - good
+            with open(self.path, "r+b") as fh:
+                fh.truncate(good)
+                fh.flush()
+                os.fsync(fh.fileno())
         self.seq = len(out)
         return out
 
@@ -209,6 +244,13 @@ def main(argv):
     args = ap.parse_args(argv[1:])
 
     store = Store(Journal(args.journal))
+    if store.journal.discarded:
+        # Say what was lost instead of silently presenting a shorter history as the whole one.
+        store.journal.append({"kind": "repair",
+                              "discarded_bytes": store.journal.discarded,
+                              "replayed_seq": store.journal.seq - 1})
+        print("journal repaired: %d trailing bytes discarded" % store.journal.discarded,
+              flush=True)
     # A boot marker, so a reader can tell what arrived before a recovery and what arrived after.
     store.journal.append({"kind": "boot", "replayed_seq": store.journal.seq})
     srv = Server(("127.0.0.1", 0), Handler)

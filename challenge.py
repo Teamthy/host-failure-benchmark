@@ -2,7 +2,7 @@
 """Break the artifacts on purpose and confirm verification notices.
 
 A checker that cannot fail is a decoration. This script takes a finished run, damages the record
-in seven specific ways, and requires that the damage be caught by the check that claims to catch
+in nine specific ways, and requires that the damage be caught by the check that claims to catch
 it. If a mutation slips through, the check it targets is not measuring what it says it measures.
 
     python challenge.py artifacts/run-20261101T120000Z
@@ -97,6 +97,27 @@ def crlf_the_journal(records):
     return records, "the store journal now carries CRLF, as Windows text mode writes it"
 
 
+def torn_tail(records):
+    """A crash in the middle of a write: the last record stops halfway through."""
+    return records, "the last record in the journal was cut in half"
+
+
+def cut_tail(path):
+    with open(path, "rb") as fh:
+        data = fh.read()
+    with open(path, "wb") as fh:
+        fh.write(data[: len(data) - 40])
+
+
+def break_a_frame(records):
+    """A record is edited and its frame is left as it was, as a careless editor would leave it."""
+    for rec in records:
+        if rec.get("kind") == "expectation":
+            rec["policy_sha"] = "sha256:" + "f" * 64
+            break
+    return records, "an expectation was edited and its frame was not recomputed"
+
+
 def to_crlf(path):
     with open(path, "rb") as fh:
         data = fh.read()
@@ -112,6 +133,8 @@ MUTATIONS = [
     ("bless-the-unbound", bless_the_unbound, {"D'"}),
     ("dirty-the-signature", dirty_the_signature, {"D"}),
     ("crlf-the-journal", (crlf_the_journal, to_crlf), {"line-endings"}),
+    ("torn-tail", (torn_tail, cut_tail), {"artifacts-readable"}),
+    ("break-a-frame", break_a_frame, {"store-records-framed"}),
 ]
 
 

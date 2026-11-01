@@ -11,6 +11,7 @@ lookups. Nothing here reads a pass flag, because nothing writes one.
 Exit code is 0 only if every check passes. A missing artifact is a failure, not a skip.
 """
 
+import hmac
 import json
 import os
 import sys
@@ -18,12 +19,16 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "bench"))
 
-from common import digest, record_payload, verify as verify_signature  # noqa: E402
+from common import digest, frame, record_payload, verify as verify_signature  # noqa: E402
 
 DESC_TRANSITION = {"kind": "state_transition", "from": "draft", "to": "issued"}
 DESC_READ = {"kind": "read", "target": "order-42"}
 
 RESULTS = []
+
+
+def hmac_compare(a, b):
+    return hmac.compare_digest(a, b)
 
 
 def check(check_id, klass, claim, counterclaim, passed, evidence):
@@ -37,15 +42,29 @@ def check(check_id, klass, claim, counterclaim, passed, evidence):
     })
 
 
+class Unreadable(Exception):
+    """An artifact that cannot be parsed. Reported as a failed check, never as a traceback."""
+
+    def __init__(self, path, line_no, detail):
+        super().__init__(detail)
+        self.path = path
+        self.line_no = line_no
+        self.detail = detail
+
+
 def read_jsonl(path):
     if not os.path.exists(path):
         return None
     out = []
     with open(path, encoding="utf-8") as fh:
-        for line in fh:
+        for line_no, line in enumerate(fh, start=1):
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 out.append(json.loads(line))
+            except ValueError as exc:
+                raise Unreadable(path, line_no, str(exc))
     return out
 
 
@@ -120,7 +139,19 @@ def appears_anywhere(store_records, action_id):
 
 
 def verify_run(rundir):
-    store = read_jsonl(os.path.join(rundir, "store.jsonl"))
+    try:
+        store = read_jsonl(os.path.join(rundir, "store.jsonl"))
+    except Unreadable as exc:
+        check(
+            "artifacts-readable", "meta",
+            "every artifact parses, so an unreadable record is reported as a damaged run rather "
+            "than as a crash in the tool that was supposed to judge it",
+            "if verification itself falls over, the run has no verdict at all and a torn journal "
+            "is indistinguishable from a broken checker",
+            False,
+            {"file": os.path.basename(exc.path), "line": exc.line_no, "detail": exc.detail},
+        )
+        return
     reconciled = read_json(os.path.join(rundir, "reconciled.json"))
     manifest = read_json(os.path.join(rundir, "manifest.json"))
 
@@ -296,6 +327,21 @@ def verify_run(rundir):
         stored_dp is not None and not dp_ok,
         {"stored": stored_dp is not None, "verifies": dp_ok,
          "quarantined": stored_dp is not None and not dp_ok},
+    )
+
+    # -- framing ---------------------------------------------------------------------------
+    framed = [rec for rec in store if "digest" in rec]
+    unframed = len(store) - len(framed)
+    broken = [rec.get("store_seq") for rec in framed
+              if not hmac_compare(rec["digest"], frame(rec))]
+    check(
+        "store-records-framed", "meta",
+        "each record in the store journal carries a digest of itself, so a write that stopped "
+        "halfway is detectable instead of being read as a shorter history",
+        "if any record fails its own frame, the journal was damaged or edited and every gap "
+        "claim built on it is suspect",
+        unframed == 0 and not broken,
+        {"records": len(store), "unframed": unframed, "broken": broken},
     )
 
     # -- the honesty checks ----------------------------------------------------------------

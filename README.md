@@ -49,7 +49,7 @@ On any other system the same three commands with `artifacts/run-...` in place of
 
 `run.py` prints the directory it wrote. `verify.py` takes that directory and re-derives every assertion from the raw files inside it: the store journal, the write-ahead log, the per-scenario host journals. It does not read a pass flag, because nothing writes one.
 
-`challenge.py` takes a finished run and damages it seven ways, then requires that the check claiming to catch each kind of damage does catch it. A checker that cannot fail is decoration.
+`challenge.py` takes a finished run and damages it nine ways, then requires that the check claiming to catch each kind of damage does catch it. A checker that cannot fail is decoration.
 
 Whole thing runs in seconds, well inside the thirty minutes the spec allowed.
 
@@ -69,6 +69,10 @@ Both should pass. If they do not, the code you have is not the code that produce
 `run.py` finishing is not a pass. `verify.py` printing `VERDICT: every check holds` is a pass, and only for the artifacts it was given.
 
 Every check in `verify.py` is written as a claim paired with the counterclaim that would refute it. When one fails, the output names the thing that refused it.
+
+## Standard practice, honestly
+
+Durability before acknowledgement, replay over reset, ids issued centrally, reconciliation against a prior expectation, canonical encoding, per-record framing, and a verifier that reads no pass flag: all implemented. Tamper evidence against someone holding the source, managed keys, trusted time, and operational controls: not implemented, and the note says which pattern each would need. The section in `TECHNICAL-NOTE.md` is the long version.
 
 ## The two distinctions this suite keeps
 
