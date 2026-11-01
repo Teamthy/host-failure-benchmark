@@ -18,6 +18,13 @@ import subprocess
 import sys
 import time
 
+# What a verifiable run has to produce. Declared here and written into the manifest, so a
+# missing artifact is a named missing artifact and not a shorter directory listing.
+REQUIRED_ARTIFACTS = ["store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
+                      "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
+                      "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "store-state.json",
+                      "lookups.json"]
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 BENCH = os.path.join(HERE, "bench")
 STORE = os.path.join(BENCH, "store.py")
@@ -137,19 +144,24 @@ def main(argv):
     lookups["A'"] = call(store.port, {"cmd": "lookup", "action_id": "A-1043"})
     lookups["B"] = call(store.port, {"cmd": "lookup", "action_id": "B-2001"})
 
-    manifest = {
-        "python": sys.version.split()[0],
-        "scenarios": [s for s, _ in SCENARIOS] + ["B"],
-        "artifacts": sorted(os.listdir(rundir)),
-    }
-    with open(os.path.join(rundir, "manifest.json"), "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(manifest, fh, indent=2, sort_keys=True)
     with open(os.path.join(rundir, "reconciled.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(reconciled, fh, indent=2, sort_keys=True)
     with open(os.path.join(rundir, "store-state.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(state, fh, indent=2, sort_keys=True)
     with open(os.path.join(rundir, "lookups.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(lookups, fh, indent=2, sort_keys=True)
+
+    # Written last, and without the port file: the port changes per run, and the rest of this
+    # suite is byte-identical between runs. The manifest is the claim about what should be here.
+    manifest = {
+        "manifest_version": 2,
+        "python": sys.version.split()[0],
+        "scenarios": [s for s, _ in SCENARIOS] + ["B"],
+        "required": sorted(REQUIRED_ARTIFACTS),
+        "artifacts": sorted(name for name in os.listdir(rundir) if name != "port.txt"),
+    }
+    with open(os.path.join(rundir, "manifest.json"), "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(manifest, fh, indent=2, sort_keys=True)
 
     store.stop()
     print("")

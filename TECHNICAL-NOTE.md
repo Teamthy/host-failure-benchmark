@@ -29,9 +29,9 @@ Eight scenarios, each one invocation of the host, each with a named failure rath
 | A | expectation registered, verdict suppressed | is the absence nameable |
 | A' | same, no expectation registered | is it nameable without one |
 | B | verdict committed locally, ship fails, store recovers | does the record carry the source-asserted decision time |
-| C | issued id plus preserved commitment, host killed | can the gap be described with content |
-| C' | issued id only, host killed | can it be named without content |
-| C'' | locally minted id, host killed | is there anything at all |
+| C | issued id plus preserved commitment, host process exits | can the gap be described with content |
+| C' | issued id only, host process exits | can it be named without content |
+| C'' | locally minted id, host process exits | is there anything at all |
 | D | full record, binding verifies | is it the record it claims to be |
 | D' | full record, no binding | is it quarantined rather than accepted |
 
@@ -41,7 +41,7 @@ The suite reports two classes separately, because they fail for different reason
 
 Class P, persistence and recovery: eight checks, all holding. The verdict in B is written to a local write-ahead log before the ship is attempted, the ship fails because the store is genuinely stopped, and the effect is withheld. On restart the store replays, the verdict lands, and it carries the timestamp from the moment of decision rather than the moment of arrival. The write-ahead log is a separate file and agrees with the store, so the timestamp is not reconstructed after the fact. Removing the local commit makes the check fail, which is how we know the log is doing the work.
 
-Class V, verification: two checks, both holding. A complete record verifies against the key it carries, and the descriptor digest recomputes from the action rather than being taken on trust. A record whose binding does not verify stays visible and is counted as quarantined, never as verified.
+Class V, verification: two checks, both holding. A complete record verifies against the key it carries, the descriptor digest recomputes from the action rather than being taken on trust, the actor and policy hash match the trusted constants, and the decision timestamp matches a counter step the host journal actually contains. A record whose binding does not verify stays visible, is counted as quarantined, never counts as verified, and never resolves a gap.
 
 The claim in Class V rests on a key derived from a fixed seed in the source. That shows a binding is internally consistent. It is not evidence of production key security and it says nothing about institutional trust.
 
@@ -69,7 +69,7 @@ The suite also only tests two processes on one machine. It says nothing about a 
 
 Worth stating plainly, because a reviewer will ask and because the answer is uneven.
 
-Implemented, and implemented the way the relevant practice says to: durability before acknowledgement, so a verdict is fsynced locally before any effect is attempted; recovery by replay rather than by reset, with a marker saying what arrived before a recovery and what arrived after; identifiers issued by an independent authority rather than minted where the action happens; reconciliation against an expectation registered beforehand, which is the same idea as a control total; canonical encoding before any binding is computed; and a verifier that is a separate program reading only raw artifacts, never a pass flag written by the thing it judges.
+Implemented, and implemented the way the relevant practice says to: durability before acknowledgement, so a verdict is fsynced locally before any effect is attempted; recovery by replay rather than by reset, with a marker saying what arrived before a recovery and what arrived after; identifiers registered by a separate store rather than minted where the action happens, which is registration and not issuance: the caller chooses the id, and the review of 1 November is right that this is the weaker of the two claims; reconciliation against an expectation registered beforehand, which is the same idea as a control total; canonical encoding before any binding is computed; and a verifier that is a separate program reading only raw artifacts, never a pass flag written by the thing it judges.
 
 Also implemented, and this one was added after the first version of this note would have claimed otherwise: per-record framing. A crash in the middle of an append leaves a partial line, and without a frame the only thing that notices is the parser falling over. Each record now carries a digest of itself, replay stops at the last whole record, the journal is cut back to that point, and a repair record states how many bytes were discarded. A truncated history is announced rather than silently presented as the whole one.
 
@@ -83,7 +83,7 @@ Trusted time. The clock is a counter, deliberately, and the decision time is sou
 
 Operational practice: rotation, retention, immutable storage, access control, privilege separation. The two processes run as the same user on the same disk. This is a demonstration of a discipline, not a deployment of one.
 
-It is also not tested the way a production component would be: nine scenarios, one machine, no fuzzing, no continuous integration. Which is how the torn-journal case above went unnoticed until it was looked for.
+It is also not tested the way a production component would be: eight scenarios, one machine, no fuzzing, no continuous integration. Which is how the torn-journal case above went unnoticed until it was looked for.
 
 ## Reproducing it
 
@@ -93,10 +93,46 @@ Every check is written as a claim paired with the counterclaim that would refute
 
 The timestamp distinction, which the second author asked to remain explicit in both the specification and the results, is closed and reported. Class P preserves the original decision time through replay without independently establishing that it is the true moment of decision. That time is source-asserted. The suite prints this on every run, and the result file carries it as a field, so a reader cannot mistake a carried timestamp for an attested one. A mechanism that would bring independent attestation inside the claim would need a clock the host cannot set, which this suite deliberately does not have.
 
+## What the review of 1 November changed
+
+An independent review found four things wrong with the checks, and one of them
+was the difference between what the note said and what the verdict line
+printed. The following changed in response, each with a counterexample in
+`audit/regressions.py` that failed before and is caught now:
+
+- WAL records and recovered verdicts are signature-checked, at ingest and in
+  the verifier. A record that does not verify is still stored and still
+  visible, and it cannot resolve a gap.
+- The verifier recomputes a record's state from the record itself instead of
+  reading a state off the journal, compares the actor and the policy hash
+  against the trusted constants in `bench/common.py`, and requires the
+  decision timestamp to match a counter step the host journal contains.
+- `run.py` writes a versioned manifest naming every required artifact, and the
+  verifier checks each scenario's event chain. A missing journal used to be
+  read as a scenario with nothing to say. It is now a failure.
+- The timestamp question is now two tests rather than one, because it was
+  being asked at two different moments. Changing the write-ahead log before the
+  store replays makes the recovered record agree with it, and what fails is the
+  binding between the timestamp and the host journal: `B` fails, `B.wal` holds.
+  Changing the log after replay makes the two files disagree, and `B.wal`
+  fails. F2's substance is untouched by the distinction: neither case shows the
+  timestamp was independently attested, and the note says so in the same
+  sentence as the result.
+- The verifier no longer raises. An unreadable artifact produces a report with
+  an explicit unreadable state, and the report is written either way.
+
+Four things the review found and this patch does not fix, in the order they
+matter: memory is still updated before the journal append in one path;
+truncation on repair still discards bytes without keeping the original
+journal; duplicate verdicts still resolve to whichever record a component
+happens to read; and the host still does not validate the store's reply before
+logging an effect. Those are the P1 items, and the note will say so until they
+are done.
+
 ## Citation
 
 This is the authors' own work and is not an industry standard.
 
 Repository: https://github.com/Teamthy/host-failure-benchmark
 
-Cite it by commit hash rather than by title, so a reader gets the version that was actually tested. The suite as published was run on Windows with Python 3.14.5 and on Linux, and the two produced identical artifacts.
+Cite it by commit hash rather than by title, so a reader gets the version that was actually tested. The suite has been run on Windows with Python 3.14.5 and on Linux and the artifacts were compared by hand; there is no published digest trail for that comparison yet, and a CI matrix running both is the fix.

@@ -4,7 +4,7 @@ A small local suite about one question: when an agent's guard decides something 
 
 Repository: https://github.com/Teamthy/host-failure-benchmark
 
-There is no model here. There is no network beyond loopback and no external key. Two processes talk over a socket for about one second, one of them is killed on purpose, and the artifacts are checked by a separate program that trusts none of them.
+There is no model here. There is no network beyond loopback and no external key. Two processes talk over a socket for about one second, one of them exits deliberately in the middle of its work (`os._exit(9)`, not a signal from outside), and the artifacts are checked by a separate program that trusts none of them.
 
 ## What this shows, and what it does not
 
@@ -12,7 +12,7 @@ Four failure rows, each with a test. Row M1 is a decision made and never emitted
 
 The suite reports two classes separately, because they fail for different reasons and a single score would hide that.
 
-Class P is persistence and recovery: whether the evidence outlives the process that made it. Eight checks.
+Class P is persistence and recovery: whether the evidence outlives the process that made it. Eight checks. Six further checks cover completeness, framing, line endings and the counter clock; a missing artifact or a journal that does not parse is a failure, not a shorter history.
 
 Class V is verification: whether a record that survived is the record it says it is, from who it says, under the policy version it names. This claim rests on a key derived from a fixed seed written in the source, which shows the binding is internally consistent and is not evidence of production key security or of anyone's institutional trust. Two checks.
 
@@ -51,11 +51,13 @@ On any other system the same three commands with `artifacts/run-...` in place of
 
 `challenge.py` takes a finished run and damages it nine ways, then requires that the check claiming to catch each kind of damage does catch it. A checker that cannot fail is decoration.
 
+`audit/regressions.py` is the same idea with harder mutations, one per finding in the November 2026 review. Each of them passed verification before that review and has to be caught now:
+
 Whole thing runs in seconds, well inside the thirty minutes the spec allowed.
 
 ## A finished run is included
 
-`example/run/` is one complete run, exactly as the programs wrote it, with nothing edited out. You can check the checks without running anything:
+`example/run/` is one complete run, exactly as the programs wrote it, with one exception: `port.txt` is left out, because the port changes between runs and every other file in the directory is byte-identical. You can check the checks without running anything:
 
 ```powershell
 python verify.py example\run
@@ -72,7 +74,7 @@ Every check in `verify.py` is written as a claim paired with the counterclaim th
 
 ## Standard practice, honestly
 
-Durability before acknowledgement, replay over reset, ids issued centrally, reconciliation against a prior expectation, canonical encoding, per-record framing, and a verifier that reads no pass flag: all implemented. Tamper evidence against someone holding the source, managed keys, trusted time, and operational controls: not implemented, and the note says which pattern each would need. The section in `TECHNICAL-NOTE.md` is the long version.
+Durability before acknowledgement, replay over reset, identifiers registered by a separate store, reconciliation against a prior expectation, canonical encoding, per-record framing, and a verifier that reads no pass flag: all implemented. The identifier is chosen by the caller and the store records the registration, which is a weaker thing than minting an id and is named that way here since the review of 1 November. Tamper evidence against someone holding the source, managed keys, trusted time, and operational controls: not implemented, and the note says which pattern each would need. The section in `TECHNICAL-NOTE.md` is the long version.
 
 ## The two distinctions this suite keeps
 
