@@ -2,7 +2,7 @@
 """Break the artifacts on purpose and confirm verification notices.
 
 A checker that cannot fail is a decoration. This script takes a finished run, damages the record
-in six specific ways, and requires that the damage be caught by the check that claims to catch
+in seven specific ways, and requires that the damage be caught by the check that claims to catch
 it. If a mutation slips through, the check it targets is not measuring what it says it measures.
 
     python challenge.py artifacts/run-20261101T120000Z
@@ -31,7 +31,7 @@ def load_store(path):
 
 
 def save_store(path, records):
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         for rec in records:
             fh.write(json.dumps(rec, sort_keys=True) + "\n")
 
@@ -92,6 +92,18 @@ def dirty_the_signature(records):
     return records, "one byte of D-4004's binding was altered"
 
 
+def crlf_the_journal(records):
+    """The journal is rewritten the way a Windows text mode would rewrite it."""
+    return records, "the store journal now carries CRLF, as Windows text mode writes it"
+
+
+def to_crlf(path):
+    with open(path, "rb") as fh:
+        data = fh.read()
+    with open(path, "wb") as fh:
+        fh.write(data.replace(b"\n", b"\r\n"))
+
+
 MUTATIONS = [
     ("stamp-at-replay", stamp_at_replay, {"B"}),
     ("drop-expectation", drop_expectation, {"A"}),
@@ -99,6 +111,7 @@ MUTATIONS = [
     ("rewrite-content", rewrite_content, {"C"}),
     ("bless-the-unbound", bless_the_unbound, {"D'"}),
     ("dirty-the-signature", dirty_the_signature, {"D"}),
+    ("crlf-the-journal", (crlf_the_journal, to_crlf), {"line-endings"}),
 ]
 
 
@@ -117,8 +130,13 @@ def run_mutation(rundir, name, mutate):
         if os.path.isfile(src):
             shutil.copy2(src, os.path.join(work, entry))
     store_path = os.path.join(work, "store.jsonl")
+    post = None
+    if isinstance(mutate, tuple):
+        mutate, post = mutate
     records, note = mutate(load_store(store_path))
     save_store(store_path, renumber(records))
+    if post:
+        post(store_path)
 
     proc = subprocess.run([sys.executable, VERIFY, work], capture_output=True, text=True)
     report_path = os.path.join(work, "verify-report.json")

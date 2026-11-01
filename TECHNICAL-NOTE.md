@@ -67,7 +67,7 @@ The suite also only tests two processes on one machine. It says nothing about a 
 
 ## Reproducing it
 
-Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run six ways and requires that each kind of damage be caught by the check that claims to catch it.
+Python 3.9 or newer, standard library only. `run.py` produces a run directory and asserts nothing. `verify.py` reads that directory and recomputes every assertion from the raw artifacts, with no pass flag anywhere in the pipeline. `challenge.py` damages a finished run seven ways and requires that each kind of damage be caught by the check that claims to catch it.
 
 Every check is written as a claim paired with the counterclaim that would refute it. When one fails, the output names the thing that refused it.
 

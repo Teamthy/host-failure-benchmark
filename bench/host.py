@@ -60,7 +60,7 @@ class Host:
         event.update(self.clock.tick(kind.upper()))
         event.update(fields)
         self.events.append(event)
-        with open(self.journal_path, "a", encoding="utf-8") as fh:
+        with open(self.journal_path, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(event, sort_keys=True) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
@@ -128,7 +128,7 @@ class Host:
         decision = self.guard(aid, descriptor)
         record = self.decision_record(decision, desc_sha, decision_ts=self.clock.step)
         # T2: the verdict is durable locally before anything else happens.
-        with open(self.wal_path, "a", encoding="utf-8") as fh:
+        with open(self.wal_path, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(record, sort_keys=True) + "\n")
             fh.flush()
             os.fsync(fh.fileno())

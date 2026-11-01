@@ -299,6 +299,18 @@ def verify_run(rundir):
     )
 
     # -- the honesty checks ----------------------------------------------------------------
+    crlf = [name for name in ARTIFACT_FILES
+            if (read_bytes(rundir, name) or b"").find(b"\r\n") >= 0]
+    check(
+        "line-endings", "meta",
+        "every artifact uses one newline convention, so a run on Windows is the same bytes as a "
+        "run on Linux and not a machine-specific rendering of one",
+        "if any artifact carries CRLF, the byte-identical claim is false on that platform and "
+        "the record says more about the operating system than about the failure",
+        not crlf,
+        {"files_with_crlf": crlf},
+    )
+
     check(
         "no-wall-clock", "meta",
         "every timestamp in every artifact is a counter step, so two runs agree byte for byte",
@@ -310,10 +322,14 @@ def verify_run(rundir):
     )
 
 
+ARTIFACT_FILES = ["store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl",
+                  "host-C.jsonl", "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl",
+                  "host-Dp.jsonl", "wal-B.jsonl", "reconciled.json", "store-state.json",
+                  "lookups.json"]
+
+
 def compare_determinism(first, second):
-    files = ["store.jsonl", "host-A.jsonl", "host-Ap.jsonl", "host-B.jsonl", "host-C.jsonl",
-             "host-Cp.jsonl", "host-Cpp.jsonl", "host-D.jsonl", "host-Dp.jsonl",
-             "reconciled.json", "lookups.json"]
+    files = ARTIFACT_FILES
     same = all(read_bytes(first, f) == read_bytes(second, f) for f in files)
     differing = [f for f in files if read_bytes(first, f) != read_bytes(second, f)]
     check(
@@ -353,7 +369,7 @@ def report(rundir):
     print("")
     print("VERDICT: %s" % ("every check holds" if not failures
                            else "%d check(s) failed" % len(failures)))
-    with open(os.path.join(rundir, "verify-report.json"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(rundir, "verify-report.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump({"checks": RESULTS,
                    "summary": {"class_P": [p_held, len(p_rows)],
                                "class_V": [v_held, len(v_rows)],

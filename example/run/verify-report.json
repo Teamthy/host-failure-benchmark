@@ -172,6 +172,16 @@
       "result": "holds"
     },
     {
+      "claim": "every artifact uses one newline convention, so a run on Windows is the same bytes as a run on Linux and not a machine-specific rendering of one",
+      "class": "meta",
+      "counterclaim": "if any artifact carries CRLF, the byte-identical claim is false on that platform and the record says more about the operating system than about the failure",
+      "evidence": {
+        "files_with_crlf": []
+      },
+      "id": "line-endings",
+      "result": "holds"
+    },
+    {
       "claim": "every timestamp in every artifact is a counter step, so two runs agree byte for byte",
       "class": "meta",
       "counterclaim": "a wall clock anywhere makes the suite non-deterministic and the comparison moot",
@@ -182,6 +192,16 @@
         ]
       },
       "id": "no-wall-clock",
+      "result": "holds"
+    },
+    {
+      "claim": "two runs of the suite produce identical artifacts, so a result can be reproduced by anyone without trusting the machine it ran on",
+      "class": "meta",
+      "counterclaim": "if any artifact differs between runs, the suite reports the machine as much as the failure",
+      "evidence": {
+        "differing": []
+      },
+      "id": "determinism",
       "result": "holds"
     }
   ],

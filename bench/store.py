@@ -38,7 +38,7 @@ class Journal:
         record = dict(record)
         record["store_seq"] = self.seq
         line = json.dumps(record, sort_keys=True)
-        with open(self.path, "a", encoding="utf-8") as fh:
+        with open(self.path, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(line + "\n")
             fh.flush()
             os.fsync(fh.fileno())

@@ -142,13 +142,13 @@ def main(argv):
         "scenarios": [s for s, _ in SCENARIOS] + ["B"],
         "artifacts": sorted(os.listdir(rundir)),
     }
-    with open(os.path.join(rundir, "manifest.json"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(rundir, "manifest.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(manifest, fh, indent=2, sort_keys=True)
-    with open(os.path.join(rundir, "reconciled.json"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(rundir, "reconciled.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(reconciled, fh, indent=2, sort_keys=True)
-    with open(os.path.join(rundir, "store-state.json"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(rundir, "store-state.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(state, fh, indent=2, sort_keys=True)
-    with open(os.path.join(rundir, "lookups.json"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(rundir, "lookups.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(lookups, fh, indent=2, sort_keys=True)
 
     store.stop()
