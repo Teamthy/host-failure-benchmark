@@ -25,7 +25,7 @@ import os
 import socketserver
 import sys
 
-from common import record_payload, frame, verify as verify_signature
+from common import bound_state, record_payload, frame, verify as verify_signature
 
 POLICY_SHA = "sha256:9f2c0d1b7a44e1d5c3b8a6f0e2d4c1b9a7f5e3d1c9b7a5f3e1d0c8b6a4f2e0d1"
 
@@ -60,14 +60,84 @@ class Journal:
         if self.failpoint == "verdict" and record.get("kind") == "verdict":
             raise JournalError("injected: the journal refused a verdict write")
         line = json.dumps(record, sort_keys=True)
-        with open(self.path, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(line + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
+        before = self._size()
+        if before and not self._ends_clean():
+            # Somebody left a partial line at the end of the journal while this store was
+            # running. Appending to it would glue this record onto the damaged one, and the
+            # record that then failed to survive a restart would be one this store acknowledged.
+            # Cut the damaged tail out first, with the same quarantine the start-up repair uses.
+            before = self._cut_damaged_tail(before)
+        try:
+            with open(self.path, "a", encoding="utf-8", newline="\n") as fh:
+                fh.write(line + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+        except OSError as exc:
+            # A failed write is not a record. The bytes may still be in the page cache and the
+            # next reader would see a record this store never acknowledged, so the file is cut
+            # back to the length it had before the attempt. Writing failure and write silence
+            # are the same claim: nothing was persisted, so nothing may be said to be.
+            self._rollback(before, exc)
+            raise JournalError("journal did not take the record: %s" % exc)
         # The sequence only advances once the bytes are on disk. A record that was never
         # written must not consume a number, or a gap in the numbering looks like a lost record.
         self.seq = record["store_seq"]
         return record
+
+    def _ends_clean(self):
+        try:
+            with open(self.path, "rb") as fh:
+                fh.seek(0, os.SEEK_END)
+                if fh.tell() == 0:
+                    return True
+                fh.seek(-1, os.SEEK_END)
+                return fh.read(1) == b"\n"
+        except OSError:
+            return True
+
+    def _cut_damaged_tail(self, size):
+        """Quarantine an unterminated tail and cut the file back to the last whole line."""
+        try:
+            with open(self.path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            return size
+        cut = data.rfind(b"\n") + 1
+        tail = data[cut:]
+        if not tail:
+            return size
+        name = self._quarantine_name()
+        with open(os.path.join(os.path.dirname(self.path) or ".", name), "wb") as fh:
+            fh.write(tail)
+            fh.flush()
+            os.fsync(fh.fileno())
+        self.quarantine = {"file": name, "bytes": len(tail),
+                           "sha256": hashlib.sha256(tail).hexdigest(),
+                           "ranges": [{"start": cut, "end": len(data)}]}
+        with open(self.path, "r+b") as fh:
+            fh.truncate(cut)
+            fh.flush()
+            os.fsync(fh.fileno())
+        return cut
+
+    def _size(self):
+        try:
+            return os.path.getsize(self.path)
+        except OSError:
+            return 0
+
+    def _rollback(self, size, exc):
+        """Cut a failed append back to the length the file had before the attempt."""
+        try:
+            with open(self.path, "r+b") as fh:
+                fh.truncate(size)
+                fh.flush()
+                os.fsync(fh.fileno())
+        except OSError as rollback_exc:
+            raise JournalError(
+                "journal write failed (%s) and the rollback to %d bytes failed too (%s): the "
+                "record's state on disk is unknown, so the store will not answer for it"
+                % (exc, size, rollback_exc))
 
     def _quarantine_name(self):
         directory = os.path.dirname(self.path) or "."
@@ -77,39 +147,45 @@ class Journal:
         return "%s.quarantine-%d.bin" % (base, len(taken) + 1)
 
     def replay(self):
+        """Read every whole, framed record, and cut out the ones that are damaged.
+
+        Every record carries a digest of itself. A crash in the middle of a write leaves a
+        partial line; so does a disk that reorders or a writer that is not this process. The
+        repair quarantines the damaged bytes and keeps the records that follow them, because a
+        record acknowledged after a torn write is a record this store told the host it had, and
+        dropping it because of an unrelated damaged line loses an acknowledgement rather than a
+        claim. The discarded bytes are copied out before the file is rewritten, so the repair
+        leaves evidence instead of a shorter file.
+        """
         if not os.path.exists(self.path):
             return []
-        out = []
-        good = 0
+        out, good, bad, offset = [], [], [], 0
         with open(self.path, "rb") as fh:
-            while True:
-                line = fh.readline()
-                if not line:
-                    break
-                offset = fh.tell()
+            for line in fh:
+                start, offset = offset, offset + len(line)
                 stripped = line.strip()
                 if not stripped:
-                    good = offset
+                    good.append(line)
                     continue
                 try:
                     record = json.loads(stripped)
                 except ValueError:
-                    break
+                    bad.append((start, offset, line))
+                    continue
+                if not isinstance(record, dict):
+                    bad.append((start, offset, line))
+                    continue
                 if "digest" in record:
                     if not hmac.compare_digest(record["digest"], frame(record)):
-                        break
+                        bad.append((start, offset, line))
+                        continue
                 else:
                     self.unframed += 1
                 out.append(record)
-                good = offset
-        if good < os.path.getsize(self.path):
-            self.discarded = os.path.getsize(self.path) - good
-            # The bytes a repair discards are the only record of what was in flight when the
-            # write stopped. Copying them out costs a file and keeps evidence that a truncation
-            # would otherwise destroy.
-            with open(self.path, "rb") as fh:
-                fh.seek(good)
-                tail = fh.read()
+                good.append(line)
+        if bad:
+            tail = b"".join(chunk for _, _, chunk in bad)
+            self.discarded = len(tail)
             name = self._quarantine_name()
             with open(os.path.join(os.path.dirname(self.path) or ".", name), "wb") as fh:
                 fh.write(tail)
@@ -119,12 +195,19 @@ class Journal:
                 "file": name,
                 "bytes": len(tail),
                 "sha256": hashlib.sha256(tail).hexdigest(),
+                "ranges": [{"start": start, "end": end} for start, end, _ in bad],
             }
-            with open(self.path, "r+b") as fh:
-                fh.truncate(good)
+            # Rewrite the whole file rather than truncating at the damage: the records after
+            # the damaged line were acknowledged and have to survive the repair.
+            tmp = self.path + ".repair"
+            with open(tmp, "wb") as fh:
+                fh.write(b"".join(good))
                 fh.flush()
                 os.fsync(fh.fileno())
-        self.seq = len(out)
+            os.replace(tmp, self.path)
+        # Numbering follows the records that survived, not a count of them: after a repair the
+        # surviving store_seq values are not contiguous, and the next record must not reuse one.
+        self.seq = max([r.get("store_seq") or 0 for r in out] or [0])
         return out
 
 
@@ -157,7 +240,10 @@ class Store:
             self.expectations[aid] = rec
         elif kind == "verdict":
             first = self.verdicts.get(aid)
-            state = rec.get("state") or self.state_of(rec.get("record"))
+            # The journal row is not evidence about itself. The row records what the store
+            # thought when it wrote the line; replay recomputes the state from the record's
+            # bytes and from the id it is filed under, and discards the claim.
+            state = self.state_of(rec.get("record"), aid)
             if first is None:
                 self.verdicts[aid] = rec
                 # The state is a property of the record, not a claim it makes about itself:
@@ -184,17 +270,13 @@ class Store:
         return stored
 
     @staticmethod
-    def state_of(record):
-        """verified or unverified, recomputed from the record's own bytes."""
-        if not isinstance(record, dict):
-            return "unverified"
-        signature = record.get("signature")
-        if not isinstance(signature, str) or not signature:
-            return "unverified"
-        try:
-            return "verified" if verify_signature(record_payload(record), signature) else "unverified"
-        except (TypeError, ValueError):
-            return "unverified"
+    def state_of(record, action_id=None):
+        """verified, unverified or unbound, recomputed from the record's own bytes.
+
+        A record signed for one action and filed under another is not verified for the action
+        it is filed under, and no key is needed to mount that substitution.
+        """
+        return bound_state(record, action_id)
 
     # -- commands ---------------------------------------------------------------------------
 
@@ -325,6 +407,13 @@ class Store:
         except JournalError as exc:
             # The write did not happen, so nothing is claimed and memory is untouched.
             return {"ok": False, "durable": False, "error": str(exc)}
+        except Exception as exc:  # noqa: BLE001 - a store that cannot answer is a store that lies
+            # A journal that raises something other than JournalError, a full disk, a closed
+            # file descriptor: the host is waiting for an acknowledgement, and the one thing
+            # this process may not do is go quiet. An unhandled exception here used to take the
+            # connection down without a reply, which the host could only read as a hang.
+            return {"ok": False, "durable": False,
+                    "error": "%s: %s" % (exc.__class__.__name__, exc)}
 
 
 class Handler(socketserver.StreamRequestHandler):

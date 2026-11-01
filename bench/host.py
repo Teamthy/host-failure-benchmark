@@ -34,17 +34,38 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 class Transport:
     def __init__(self, port):
         self.port = port
+        # Why the last call did not produce a reply, in words the journal can carry.
+        self.last_error = None
 
     def call(self, req):
-        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as sock:
-            sock.sendall((json.dumps(req) + "\n").encode("utf-8"))
-            buf = b""
-            while not buf.endswith(b"\n"):
-                chunk = sock.recv(65536)
-                if not chunk:
-                    break
-                buf += chunk
-        return json.loads(buf.decode("utf-8"))
+        """Send one request and return the reply, or None if the reply never arrived.
+
+        A closed connection and an unparseable line are both "no answer", and the caller has to
+        be able to say that out loud. Letting the JSON error escape turned a silent store into a
+        traceback in the host, which reads as a bug in the host rather than as a missing
+        acknowledgement.
+        """
+        self.last_error = None
+        try:
+            with socket.create_connection(("127.0.0.1", self.port), timeout=5) as sock:
+                sock.sendall((json.dumps(req) + "\n").encode("utf-8"))
+                buf = b""
+                while not buf.endswith(b"\n"):
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        break
+                    buf += chunk
+        except OSError as exc:
+            self.last_error = "store unreachable: %s" % exc.__class__.__name__
+            return None
+        if not buf.strip():
+            self.last_error = "store closed the connection without a reply"
+            return None
+        try:
+            return json.loads(buf.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            self.last_error = "store sent a line that is not a JSON object"
+            return None
 
 
 class Host:
@@ -83,7 +104,10 @@ class Host:
         except OSError as exc:
             return None, ["store unreachable: %s" % exc.__class__.__name__]
         problems = []
-        if not isinstance(resp, dict):
+        if resp is None:
+            problems.append(self.transport.last_error
+                            or "store closed the connection without a reply")
+        elif not isinstance(resp, dict):
             problems.append("reply is not a JSON object")
         else:
             if resp.get("ok") is not True:
@@ -91,6 +115,16 @@ class Host:
             if action_id is not None and resp.get("action_id") != action_id:
                 problems.append("reply names %r, the request was %r"
                                 % (resp.get("action_id"), action_id))
+            if req.get("cmd") == "verdict":
+                # ok:true only says the command ran. It does not say the record is on disk, and
+                # it does not say the store could resolve it. Both have to be in the reply, in
+                # words, or the effect proceeds on a message that never claimed either.
+                if resp.get("stored") is not True:
+                    problems.append("store did not store the record: stored=%r"
+                                    % resp.get("stored"))
+                if resp.get("state") != "verified":
+                    problems.append("store did not resolve the verdict: state=%r (conflict=%r)"
+                                    % (resp.get("state"), resp.get("conflict")))
         return resp, problems
 
     def require(self, req, action_id=None, purpose=None):

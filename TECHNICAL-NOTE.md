@@ -33,13 +33,13 @@ Eight scenarios, each one invocation of the host, each with a named failure rath
 | C' | issued id only, host process exits | can it be named without content |
 | C'' | locally minted id, host process exits | is there anything at all |
 | D | full record, binding verifies | is it the record it claims to be |
-| D' | full record, no binding | is it quarantined rather than accepted |
+| D' | full record, no binding | is it quarantined rather than accepted, and does the effect stop |
 
 ## Results
 
 The suite reports two classes separately, because they fail for different reasons.
 
-Class P, persistence and recovery: eight checks, all holding. The verdict in B is written to a local write-ahead log before the ship is attempted, the ship fails because the store is genuinely stopped, and the effect is withheld. On restart the store replays, the verdict lands, and it carries the timestamp from the moment of decision rather than the moment of arrival. The write-ahead log is a separate file and agrees with the store, so the timestamp is not reconstructed after the fact. Removing the local commit makes the check fail, which is how we know the log is doing the work.
+Class P, persistence and recovery: thirteen checks, all holding. The verdict in B is written to a local write-ahead log before the ship is attempted, the ship fails because the store is genuinely stopped, and the effect is withheld. On restart the store replays, the verdict lands, and it carries the timestamp from the moment of decision rather than the moment of arrival. The write-ahead log is a separate file and agrees with the store, so the timestamp is not reconstructed after the fact. Removing the local commit makes the check fail, which is how we know the log is doing the work.
 
 Class V, verification: two checks, both holding. A complete record verifies against the key it carries, the descriptor digest recomputes from the action rather than being taken on trust, the actor and policy hash match the trusted constants, and the decision timestamp matches a counter step the host journal actually contains. A record whose binding does not verify stays visible, is counted as quarantined, never counts as verified, and never resolves a gap.
 
@@ -142,6 +142,60 @@ fails without the fix:
   a different action is refused and no effect is logged. The counterexample
   restores the pre-patch behaviour, in which any well-formed reply counted as
   consent.
+
+## The second review, of 1 November, and what it changed
+
+A second, adversarial review of commit `df0cf5a` shipped a package of 36
+outcome tests and 13 input checks and reported 25 deviations. Re-run unchanged
+against the tree this note describes, 22 of the 36 now behave as documented and
+10 do not. The deviations that remain are named at the end of this section, in
+their own words, and none of them is described as fixed.
+
+What changed, and the counterexample each one answers:
+
+- The store no longer believes a journal row about its own state. Replay
+  recomputes the state from the record's bytes and from the action id the row
+  is filed under, using one function in `bench/common.py` that the store, the
+  verifier and the host all import. A row asserting `state: verified` over an
+  unsigned record leaves the action a gap, and a record signed for one action
+  and filed under another resolves neither.
+- The verifier's `D` check refuses to report a record as verified when the same
+  journal lists its action as an unresolved gap. Two components disagreeing
+  about one action is now a failure rather than two answers.
+- The host treats `ok: true` as permission to continue, not as an
+  acknowledgement. A verdict reply has to say the record was stored and that
+  the store resolved it as verified. `stored: false`, `state: conflicted`,
+  `state: unverified`, a closed connection and an unparseable line all withhold
+  the effect and name the reason. `D'` therefore no longer ships the effect, and
+  its journal shows `reply_rejected` instead of `effect_committed`.
+- A journal write that fails cuts the file back to the length it had before the
+  attempt, and the store answers `ok: false, durable: false` rather than
+  raising, hanging or going quiet. A partial line left by something else is
+  quarantined before the next append instead of being glued to it, and repair
+  keeps the records that follow damage rather than truncating at it.
+- `B` binds the recovered verdict to the epoch it landed in, not to the last
+  boot record in the file, so a routine restart after a valid run no longer
+  makes the run fail. A new check, `B.decision`, requires the verdict that
+  survived to be the verdict the host logged when the guard made it.
+- A verdict the store cannot resolve stops the effect, and `D'.effect` is the check that says
+  so. Previously the quarantine was a label on the record while the host shipped the action.
+- `verify.py run run` is refused: one directory is not two runs.
+  `challenge.py` no longer writes a report into the directory it was pointed
+  at, its "not a run" path is generated rather than a fixed name, and it ends by
+  proving the evidence directory is byte-identical to before it started.
+
+Each of those six findings now has a mode in `audit/regressions.py`, nineteen in all. The
+modes fire the counterexample and require the named check to catch it, and f20 requires the
+benign direction as well: an ordinary restart after a valid run has to verify, and the binding
+P2 replaced has to fail on it.
+
+Still open, in the reviewer's terms and with no fix claimed: host-disk loss
+between a crash and recovery (no independently recorded kill receipt, no named
+test); completeness of earlier evidence (authenticated sequence numbers and
+checkpoints are not implemented); the timestamp is still source-asserted, and
+the key is still in the source; identifiers are still chosen by the caller; an
+idle connection still holds the single-threaded store; and the harness still
+imports the encoder it checks.
 
 What is still open after this patch: identifiers are chosen by the caller and
 registered, not minted by the store, which is a weaker claim and is written as

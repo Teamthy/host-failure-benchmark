@@ -20,7 +20,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "bench"))
 
-from common import (DECIDED_BY, POLICY_SHA, digest, frame, record_payload,  # noqa: E402
+from common import (DECIDED_BY, POLICY_SHA, bound_state, digest, frame,  # noqa: E402
+                    record_payload,
                     verify as verify_signature)
 
 DESC_TRANSITION = {"kind": "state_transition", "from": "draft", "to": "issued"}
@@ -93,21 +94,15 @@ def step_of(events):
 
 
 def verdict_state(row):
-    """verified or unverified, recomputed from the record and never read off the journal.
+    """verified, unverified or unbound, recomputed from the record and never read off a field.
 
     The journal can say whatever it likes about a record's state. This is the check, so it
-    recomputes from the bytes that are actually there.
+    recomputes from the bytes that are actually there, and it uses the same definition the
+    store uses: a record signed for another action does not resolve the action it is filed
+    under.
     """
-    record = (row or {}).get("record")
-    if not isinstance(record, dict):
-        return "unverified"
-    signature = record.get("signature")
-    if not isinstance(signature, str) or not signature:
-        return "unverified"
-    try:
-        return "verified" if verify_signature(record_payload(record), signature) else "unverified"
-    except (TypeError, ValueError):
-        return "unverified"
+    row = row or {}
+    return bound_state(row.get("record"), row.get("action_id"))
 
 
 def find_verdict(store_records, action_id, state=None):
@@ -152,7 +147,7 @@ def recompute_gaps(store_records):
         first = rows[0]
         if any(row.get("record") != first.get("record") for row in rows[1:]):
             continue
-        if verdict_state(first) == "verified":
+        if verdict_state(first) == "verified" and first.get("action_id") == aid:
             verdicts.add(aid)
 
     gaps = []
@@ -300,11 +295,21 @@ def _verify_run(rundir):
     commit_step = step_of([wal_commit])
     ship_step = step_of([replay_ship])
     stored_ts = stored_b["record"].get("decision_ts") if stored_b else None
-    arrived_after_recovery = bool(
-        stored_b and boots and stored_b["store_seq"] > max(b["store_seq"] for b in boots)
-    ) if len(boots) > 1 else False
+    # The epoch the verdict landed in is the one opened by the boot record in front of it, not
+    # the last boot in the file. A store that restarts again after the run is a routine restart
+    # and says nothing about when the verdict arrived; binding B to "after the latest boot"
+    # turned that into a false accusation that the verdict predated recovery.
+    boots_before_b = ([b for b in boots if (b.get("store_seq") or 0) < (stored_b.get("store_seq") or 0)]
+                      if stored_b else [])
+    recovery_boot = max(boots_before_b, key=lambda b: b.get("store_seq") or 0) if boots_before_b else None
+    predates_recovery = bool(recovery_boot) and any(
+        r.get("kind") == "verdict" and r.get("action_id") == "B-2001"
+        and (r.get("store_seq") or 0) < (recovery_boot.get("store_seq") or 0) for r in store)
+    arrived_after_recovery = bool(recovery_boot) and len(boots) > 1 and not predates_recovery
 
     wal_record = wal_b[0] if wal_b else None
+    # The independent witness, read before the check that needs it rather than after.
+    wal_ts = wal_record.get("decision_ts") if wal_record else None
     wal_sig_ok = bool(wal_record) and isinstance(wal_record.get("signature"), str) and \
         verify_signature(record_payload(wal_record), wal_record.get("signature"))
     stored_b_state = verdict_state(stored_b)
@@ -314,7 +319,7 @@ def _verify_run(rundir):
         "the time it was decided rather than the time it arrived",
         "if the stored decision timestamp equals the replay step, or the verdict predates the "
         "restart, then the record carries recovery time and the claim fails",
-        bool(stored_b) and stored_ts == guard_step and commit_step > guard_step
+        bool(stored_b) and stored_ts == guard_step and stored_ts == wal_ts and commit_step > guard_step
         and replay_ship is not None and not redecided
         and arrived_after_recovery and ship_failed is not None
         and stored_b_state == "verified" and wal_sig_ok,
@@ -322,12 +327,32 @@ def _verify_run(rundir):
          "replay_step": step_of([replay_ship]), "stored_ts": stored_ts,
          "redecided_on_replay": len(redecided),
          "ship_failed": ship_failed is not None, "boots": len(boots),
+         "recovery_boot_seq": (recovery_boot or {}).get("store_seq"),
+         "verdict_predates_recovery": predates_recovery,
          "arrived_after_recovery": arrived_after_recovery,
          "stored_verdict_state": stored_b_state, "wal_signature_ok": wal_sig_ok},
     )
 
+    # The decision that survived has to be the decision that was made. The host's own journal is
+    # the only artifact that records the guard's answer at the time, and nothing here compared
+    # the two: a record that was rewritten before it was shipped carried a timestamp nobody
+    # questioned because every other field agreed with itself.
+    check(
+        "B.decision", "P",
+        "the verdict that survived recovery is the decision the host recorded when it made it, "
+        "so the record that landed is that decision and not a later rewrite of it",
+        "if the stored verdict or its rule differs from the guard decision in the host journal, "
+        "the record that survived is not the decision that was made",
+        bool(stored_b) and bool(guard_b)
+        and (stored_b.get("record") or {}).get("verdict") == guard_b.get("verdict")
+        and (stored_b.get("record") or {}).get("rule") == guard_b.get("rule"),
+        {"stored_verdict": (stored_b.get("record") or {}).get("verdict") if stored_b else None,
+         "guard_verdict": (guard_b or {}).get("verdict"),
+         "stored_rule": (stored_b.get("record") or {}).get("rule") if stored_b else None,
+         "guard_rule": (guard_b or {}).get("rule")},
+    )
+
     # The WAL is the independent witness: it must carry the same timestamp the store does.
-    wal_ts = wal_b[0].get("decision_ts") if wal_b else None
     check(
         "B.wal", "P",
         "the timestamp in the store's record is the one the host wrote down before the ship, "
@@ -397,10 +422,14 @@ def _verify_run(rundir):
         "a complete record verifies against the key it carries, and the descriptor digest "
         "recomputes from the action rather than being taken on trust",
         "if the signature does not verify over the stored bytes, or the digest does not "
-        "recompute, the record is only a file that says so",
+        "recompute, the record is only a file that says so; if the same journal lists D-4004 "
+        "as an unresolved gap, then this check and the reconciliation disagree and one of them "
+        "is wrong, so neither may be reported as a pass",
         signer_ok and payload_d.get("descriptor_sha") == digest(DESC_READ)
-        and decided_ok and policy_ok and ts_bound_ok,
+        and decided_ok and policy_ok and ts_bound_ok
+        and find_gap(gaps, "D-4004") is None,
         {"descriptor_sha": payload_d.get("descriptor_sha") if payload_d else None,
+         "conflicts_with_reconciliation": find_gap(gaps, "D-4004"),
          "expected": digest(DESC_READ), "signature_ok": signer_ok,
          "decided_by": payload_d.get("decided_by") if payload_d else None,
          "decided_by_ok": decided_ok,
@@ -421,6 +450,17 @@ def _verify_run(rundir):
         stored_dp is not None and not dp_ok,
         {"stored": stored_dp is not None, "verifies": dp_ok,
          "quarantined": stored_dp is not None and not dp_ok},
+    )
+
+    effect_dp = (jdp.get(("D'", "effect_committed")) or [None])[0]
+    check(
+        "D'.effect", "V",
+        "the effect did not proceed on a record the store could not resolve, so quarantine "
+        "stops the action and not only the label on the record",
+        "if an effect was committed for D-4005, the store said the binding did not verify and "
+        "the host acted anyway, which is the same defect as accepting the record",
+        effect_dp is None,
+        {"effect_committed": effect_dp},
     )
 
     # -- F11: the journal refuses a write, so nothing may be known ------------------------
@@ -633,8 +673,8 @@ SCENARIO_EVENTS = {
     "host-Cp.jsonl": ("id_issued", "proposal", "guard_decision", "host_dying"),
     "host-Cpp.jsonl": ("local_id_minted", "proposal", "guard_decision", "host_dying"),
     "host-D.jsonl": ("proposal", "guard_decision", "ship_ok", "effect_committed"),
-    "host-Dp.jsonl": ("proposal", "guard_decision", "signature_stripped", "ship_ok",
-                      "effect_committed"),
+    "host-Dp.jsonl": ("proposal", "guard_decision", "signature_stripped", "reply_rejected",
+                      "effect_withheld"),
     "probe-reply/host-E.jsonl": ("proposal", "guard_decision", "reply_rejected",
                                  "effect_withheld"),
 }
@@ -658,17 +698,24 @@ def compare_determinism(first, second):
     a completeness check.
     """
     absent_dirs = [path for path in (first, second) if not os.path.isdir(path)]
+    # One directory is not two runs. Comparing a run with itself reads every file twice, agrees
+    # with itself, and reports a determinism pass that was never tested.
+    same_directory = (os.path.realpath(first) == os.path.realpath(second)
+                      if not absent_dirs else False)
     missing = sorted({f for f in ARTIFACT_FILES for path in (first, second)
                       if read_bytes(path, f) is None})
-    differing = [f for f in ARTIFACT_FILES if read_bytes(first, f) != read_bytes(second, f)]
+    differing = [] if same_directory else [
+        f for f in ARTIFACT_FILES if read_bytes(first, f) != read_bytes(second, f)]
     check(
         "determinism", "meta",
         "two runs of the suite produce identical artifacts, so a result can be reproduced by "
         "anyone without trusting the machine it ran on",
         "if any artifact differs between runs, the suite reports the machine as much as the "
-        "failure; if either directory or any artifact is missing, nothing was compared",
-        not absent_dirs and not missing and not differing,
+        "failure; if either directory or any artifact is missing, nothing was compared; if the "
+        "same directory was named twice, one directory was compared with itself",
+        not absent_dirs and not same_directory and not missing and not differing,
         {"differing": differing, "missing_directories": absent_dirs,
+         "same_directory": first if same_directory else None,
          "missing_artifacts": missing},
     )
 
@@ -711,6 +758,12 @@ def report(rundir):
         # in the directory.
         print("")
         print("verify-report.json was not written (%s)." % exc)
+        stale = os.path.exists(os.path.join(rundir, "verify-report.json"))
+        if stale:
+            # A report that could not be replaced is still sitting where a reader will look for
+            # this run's result. Leaving it unmentioned would be the worst of the two options.
+            print("An older verify-report.json is still in that directory and describes an "
+                  "earlier run. Do not read it as this run's result.")
         print("The verdict above stands; the report file is missing, not the judgement.")
         return 0 if not failures else 1
     with report_file as fh:

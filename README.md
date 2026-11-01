@@ -12,7 +12,7 @@ Four failure rows, each with a test. Row M1 is a decision made and never emitted
 
 The suite reports two classes separately, because they fail for different reasons and a single score would hide that.
 
-Class P is persistence and recovery: whether the evidence outlives the process that made it. Twelve checks. Six further checks cover completeness, framing, line endings and the counter clock; a missing artifact or a journal that does not parse is a failure, not a shorter history.
+Class P is persistence and recovery: whether the evidence outlives the process that made it. Thirteen checks. Six further checks cover completeness, framing, line endings and the counter clock; a missing artifact or a journal that does not parse is a failure, not a shorter history.
 
 Class V is verification: whether a record that survived is the record it says it is, from who it says, under the policy version it names. This claim rests on a key derived from a fixed seed written in the source, which shows the binding is internally consistent and is not evidence of production key security or of anyone's institutional trust. Two checks.
 

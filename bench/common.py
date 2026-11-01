@@ -59,3 +59,27 @@ class Clock:
 def record_payload(record):
     """The part a signature covers: everything except the signature itself."""
     return {k: v for k, v in record.items() if k != "signature"}
+
+
+def bound_state(record, action_id):
+    """The state of a record, recomputed from its own bytes and the id it is filed under.
+
+    Two things have to be true for a record to count as verified: its signature verifies over
+    its own payload, and the id inside the payload is the id it is filed under. Without the
+    second, a record signed for one action resolves another one, and no key is needed to do it.
+
+    This is defined once and imported by the store, the verifier and the host, so the three
+    cannot drift into disagreeing about what "verified" means. Nothing may read the state off a
+    journal field: the journal is a claim, and this is the check.
+    """
+    if not isinstance(record, dict):
+        return "unverified"
+    if action_id is not None and record.get("action_id") != action_id:
+        return "unbound"
+    signature = record.get("signature")
+    if not isinstance(signature, str) or not signature:
+        return "unverified"
+    try:
+        return "verified" if verify(record_payload(record), signature) else "unverified"
+    except (TypeError, ValueError):
+        return "unverified"

@@ -15,6 +15,7 @@ identical, has reported on nothing.
 Exit code is 0 only if every mutation was caught by its expected check.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -180,12 +181,25 @@ MUTATIONS = [
 ]
 
 
+def copy_of(rundir):
+    work = tempfile.mkdtemp(prefix="challenge-copy-")
+    copy_run(rundir, work)
+    return work
+
+
 def baseline(rundir):
-    proc = subprocess.run([sys.executable, VERIFY, rundir], capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise SystemExit("the run you pointed me at does not verify already:\n" + proc.stdout)
-    with open(os.path.join(rundir, "verify-report.json"), encoding="utf-8") as fh:
-        return {row["id"] for row in json.load(fh)["checks"] if row["result"] == "holds"}
+    """Verify a copy. The directory you point this script at is evidence, and evidence is not
+    where a report about it belongs: a failed report left in the run directory is a file that
+    looks like a verdict on a run nobody judged."""
+    work = copy_of(rundir)
+    try:
+        proc = subprocess.run([sys.executable, VERIFY, work], capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise SystemExit("the run you pointed me at does not verify already:\n" + proc.stdout)
+        with open(os.path.join(work, "verify-report.json"), encoding="utf-8") as fh:
+            return {row["id"] for row in json.load(fh)["checks"] if row["result"] == "holds"}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def run_mutation(rundir, name, mutate):
@@ -218,7 +232,10 @@ def input_checks(rundir):
     """
     results = []
 
-    missing = os.path.join(tempfile.gettempdir(), "hfb-no-such-run-4f2a")
+    # A fixed path is not a missing path. The earlier version named one constant, so a directory
+    # with that name in the temp directory turned "a directory that is not there" into a
+    # directory that was, and the check stopped testing what it says it tests.
+    missing = os.path.join(tempfile.mkdtemp(prefix="hfb-absent-"), "not-a-run")
     proc = subprocess.run([sys.executable, VERIFY, missing], capture_output=True, text=True)
     said = (proc.stdout or proc.stderr).strip().splitlines()
     results.append((
@@ -228,22 +245,34 @@ def input_checks(rundir):
         "exit %d, %s" % (proc.returncode, said[-1] if said else "no output"),
     ))
 
-    work = tempfile.mkdtemp(prefix="challenge-input-")
-    copy_run(rundir, work)
+    first, second = copy_of(rundir), copy_of(rundir)
     for name in ("host-D.jsonl", "probe-reply/host-E.jsonl"):
-        path = os.path.join(work, name)
+        path = os.path.join(second, name)
         if os.path.exists(path):
             os.remove(path)
-    proc = subprocess.run([sys.executable, VERIFY, rundir, work], capture_output=True, text=True)
-    with open(os.path.join(rundir, "verify-report.json"), encoding="utf-8") as fh:
+    subprocess.run([sys.executable, VERIFY, first, second], capture_output=True, text=True)
+    with open(os.path.join(first, "verify-report.json"), encoding="utf-8") as fh:
         rows = {row["id"]: row["result"] for row in json.load(fh)["checks"]}
     results.append((
         "determinism against a run with artifacts missing",
         rows.get("determinism") == "fails",
         "determinism %s" % rows.get("determinism"),
     ))
-    shutil.rmtree(work, ignore_errors=True)
+    shutil.rmtree(first, ignore_errors=True)
+    shutil.rmtree(second, ignore_errors=True)
     return results
+
+
+def fingerprint(rundir):
+    """Every file under the run directory, by relative path and content digest."""
+    out = {}
+    for root, _dirs, files in os.walk(rundir):
+        for name in files:
+            path = os.path.join(root, name)
+            rel = os.path.relpath(path, rundir)
+            with open(path, "rb") as fh:
+                out[rel] = hashlib.sha256(fh.read()).hexdigest()
+    return out
 
 
 def main(argv):
@@ -251,6 +280,7 @@ def main(argv):
         print(__doc__)
         return 2
     rundir = argv[1]
+    before = fingerprint(rundir)
     holds_before = baseline(rundir)
     print("baseline: %d checks hold" % len(holds_before))
     print("")
@@ -271,6 +301,15 @@ def main(argv):
         print("%-54s %-7s %s" % (name, "held" if held else "MISSED", detail))
         if not held:
             input_missed.append(name)
+
+    after = fingerprint(rundir)
+    touched = sorted(set(before) ^ set(after)) + sorted(
+        name for name in set(before) & set(after) if before[name] != after[name])
+    print("%-54s %-7s %s" % ("the run you pointed me at is unchanged",
+                             "held" if not touched else "MISSED",
+                             ", ".join(touched) or "no file added, removed or rewritten"))
+    if touched:
+        input_missed.append("evidence directory left changed: %s" % ", ".join(touched))
 
     print("")
     if missed:

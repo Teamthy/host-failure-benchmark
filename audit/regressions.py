@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""The counterexamples from the 1 November 2026 review, kept as tests.
+"""The counterexamples from the two reviews of 1 November 2026, kept as tests.
 
 Every mode here beat the verifier at commit 25cd57f. Each one now has to be
 caught by a named check, or this script fails. That is the point: a fix
 without a counterexample that can fail again is a fix waiting to regress.
 
-    python3 audit/regressions.py            # all twelve, exit 0 only if all caught
+    python3 audit/regressions.py            # all nineteen, exit 0 only if all caught
     python3 audit/regressions.py f1         # one, with the evidence printed
 
 Each mode copies the repository into a temporary directory and works there,
@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import hashlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_REPO = os.path.dirname(HERE)
@@ -64,6 +65,32 @@ MODES = {
             "before-run", {"reply-checked"}, set()),
     "f11": ("the store indexing memory before the journal, as it did before the patch",
             "before-run", {"journal-first"}, set()),
+    # The P2 counterexamples, from the differential review of the same day. F-01 is two defects
+    # in one area, so it gets two modes: a row that asserts its own state, and a record signed
+    # for one action filed under another. Neither is a mutation of the verifier. Both are
+    # answered by the store's own replay, so the assertion is what a restarted store reports,
+    # exactly as the reviewer asked it.
+    "f16": ("a journal row that asserts state=verified over an unsigned record, then a restart",
+            "after-run", set(), set()),
+    "f17": ("a record signed for D-4004 filed under C-3003, then a restart",
+            "after-run", set(), set()),
+    # F-02. The conflict record is gone and the two signed verdicts remain: whichever one a
+    # reader loads first must not become the answer.
+    "f18": ("two differently signed D-4004 verdicts with the conflict record removed",
+            "after-run", {"D"}, set()),
+    # F-03. The pre-P2 host reads ok:true as consent, so D' ships an effect the store said it
+    # could not resolve.
+    "f19": ("the host accepting a reply that was neither stored nor resolved, as it did before P2",
+            "before-run", {"D'.effect"}, set()),
+    # F-05, in both directions: the benign restart must verify, and the pre-P2 binding must not.
+    "f20": ("a routine restart after a valid run, against the binding P2 replaced",
+            "custom", set(), set()),
+    # F-04. A journal that raises on write, in process, where an injected EIO can reach it.
+    "f21": ("a journal whose open() and fsync() raise EIO during a verdict append",
+            "custom", set(), set()),
+    # F-09. The two input-handling cases the reviewer found in the runner, not in the run.
+    "f22": ("one directory compared with itself, and a challenge that edits the evidence",
+            "custom", set(), set()),
 }
 
 
@@ -101,6 +128,34 @@ def apply_before_run(tree: str, mode: str) -> None:
         after = "            if False and action_id is not None and resp.get(\"action_id\") != action_id:"
         if before not in source:
             raise SystemExit("f10: could not find the reply check")
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(source.replace(before, after, 1))
+        return
+
+    if mode == "f19":
+        path = os.path.join(tree, "bench", "host.py")
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        before = '            if req.get("cmd") == "verdict":'
+        after = '            if False and req.get("cmd") == "verdict":'
+        if before not in source:
+            raise SystemExit("f19: could not find the acknowledgement requirement")
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(source.replace(before, after, 1))
+        return
+
+    if mode == "f20":
+        path = os.path.join(tree, "verify.py")
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        before = ("    arrived_after_recovery = bool(recovery_boot) and len(boots) > 1 "
+                  "and not predates_recovery")
+        after = ("    arrived_after_recovery = bool(\n"
+                 "        stored_b and boots and stored_b[\"store_seq\"] > max(b[\"store_seq\"] "
+                 "for b in boots)\n"
+                 "    ) if len(boots) > 1 else False")
+        if before not in source:
+            raise SystemExit("f20: could not find the recovery-epoch binding")
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(source.replace(before, after, 1))
         return
@@ -322,6 +377,49 @@ def apply_after_run(repo: str, rundir: str, mode: str) -> None:
                 fh.write(json.dumps(row, sort_keys=True) + "\n")
         return
 
+    if mode in ("f16", "f17"):
+        path = os.path.join(rundir, "store.jsonl")
+        with open(path, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        seq = max(row.get("store_seq", 0) for row in rows) + 1
+        if mode == "f16":
+            # An unsigned record whose journal line says it is verified. Nothing signed it and
+            # nothing should believe it, but the line is framed correctly, so only the state
+            # rule stands between this row and a closed gap.
+            row = {"kind": "verdict", "action_id": "C-3003", "state": "verified",
+                   "record": {"action_id": "C-3003", "verdict": "ALLOW", "signature": None},
+                   "store_seq": seq}
+        else:
+            # A real, correctly signed record, signed for another action. The signature is not
+            # the question; the binding is, and no key is needed to mount the substitution.
+            donor = [r for r in rows
+                     if r.get("kind") == "verdict" and r.get("action_id") == "D-4004"][0]
+            row = {"kind": "verdict", "action_id": "C-3003", "state": "verified",
+                   "record": dict(donor["record"]), "store_seq": seq}
+        row["digest"] = common.frame(row)
+        with open(path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(row, sort_keys=True) + "\n")
+        return
+
+    if mode == "f18":
+        path = os.path.join(rundir, "store.jsonl")
+        with open(path, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        donor = [r for r in rows
+                 if r.get("kind") == "verdict" and r.get("action_id") == "D-4004"][0]
+        second = {"kind": "verdict", "action_id": "D-4004",
+                  "record": dict(donor["record"], decision_ts=99),
+                  "store_seq": max(r.get("store_seq", 0) for r in rows) + 1}
+        second["record"]["signature"] = common.sign(common.record_payload(second["record"]))
+        second["state"] = "verified"
+        second["digest"] = common.frame(second)
+        kept = [r for r in rows if r.get("kind") != "conflict"]
+        kept.append(second)
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            for row in kept:
+                fh.write(json.dumps(row, sort_keys=True) + "\n")
+        return
+
     raise SystemExit("no after-run change for %r" % mode)
 
 
@@ -339,7 +437,199 @@ def failed_checks(rundir: str) -> tuple[set, str]:
     return {row["id"] for row in report["checks"] if row["result"] == "fails"}, ""
 
 
+# -- the P2 modes that do not fit a single damage-then-verify shape ---------------------------
+def fresh_copy(repo: str, name: str) -> str:
+    work = tempfile.mkdtemp(prefix="hfb-%s-" % name)
+    tree = os.path.join(work, "host-failure-benchmark")
+    shutil.copytree(repo, tree, ignore=shutil.ignore_patterns(
+        "artifacts", ".git", "__pycache__", "*.pyc"))
+    return tree
+
+
+def append_boot(tree: str, rundir: str) -> None:
+    """One more boot record, which is what an ordinary restart after the run leaves behind.
+
+    A store that is started on a finished journal replays it and writes one boot line. This
+    writes the same line without starting the store, so the run's own evidence is untouched
+    apart from the record a routine restart would have added.
+    """
+    common = bench_import(tree)
+    path = os.path.join(rundir, "store.jsonl")
+    with open(path, encoding="utf-8") as fh:
+        rows = [json.loads(line) for line in fh if line.strip()]
+    boot = {"kind": "boot", "replayed_records": len(rows),
+            "store_seq": max(row.get("store_seq", 0) for row in rows) + 1}
+    boot["digest"] = common.frame(boot)
+    with open(path, "a", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(boot, sort_keys=True) + "\n")
+
+
+def custom_f20(repo: str) -> tuple[bool, str]:
+    """F-05 in both directions, because a check that fires on a routine restart is not a check.
+
+    First the benign case: the tree as it stands, a valid run, one more boot record, and the
+    run still verifies. Then the counterexample: the pre-P2 binding, the same boot record, and
+    B fails. One half alone would let either a check that never fires or a check that always
+    fires pass as a fix.
+    """
+    benign_tree = fresh_copy(repo, "f20-benign")
+    rundir = run_suite(benign_tree)
+    append_boot(benign_tree, rundir)
+    run_verify(benign_tree, rundir)
+    failed, note = failed_checks(rundir)
+    benign = not failed
+
+    old_tree = fresh_copy(repo, "f20-old")
+    apply_before_run(old_tree, "f20")
+    old_run = run_suite(old_tree)
+    append_boot(old_tree, old_run)
+    run_verify(old_tree, old_run)
+    old_failed, _ = failed_checks(old_run)
+    caught = "B" in old_failed
+
+    detail = ("routine restart then verify: failed %s; the pre-P2 binding on the same restart: "
+              "failed %s" % (", ".join(sorted(failed)) or "nothing",
+                             ", ".join(sorted(old_failed)) or "nothing"))
+    return benign and caught, detail
+
+
+STORE_IO_CASE = r"""
+import json, os, sys
+sys.path.insert(0, os.path.join(sys.argv[1], "bench"))
+import store as S
+
+out = {}
+journal = os.path.join(sys.argv[2], "store.jsonl")
+real_open, real_fsync = open, os.fsync
+
+s = S.Store(S.Journal(journal))
+s.handle({"cmd": "issue", "action_id": "M-1"})
+record = {"action_id": "M-1", "verdict": "ALLOW", "signature": None}
+
+def eio(*a, **k):
+    raise OSError(5, "Input/output error")
+
+# 1. open() raises while the verdict is being appended
+S.open = eio
+def attempt():
+    try:
+        return {"reply": s.handle({"cmd": "verdict", "record": record}), "raised": False}
+    except Exception as exc:
+        return {"reply": None, "raised": True, "error": repr(exc)}
+out["open_eio"] = attempt()
+S.open = real_open
+out["open_eio"]["live_knows"] = s.handle({"cmd": "lookup", "action_id": "M-1"})["verdict"] is not None
+s2 = S.Store(S.Journal(journal))
+out["open_eio"]["restart_knows"] = s2.handle({"cmd": "lookup", "action_id": "M-1"})["verdict"] is not None
+
+# 2. fsync raises after the bytes were written
+s3 = S.Store(S.Journal(journal))
+def bad_fsync(fd):
+    raise OSError(5, "Input/output error")
+S.os.fsync = bad_fsync
+def attempt2():
+    try:
+        return {"reply": s3.handle({"cmd": "verdict", "record": record}), "raised": False}
+    except Exception as exc:
+        return {"reply": None, "raised": True, "error": repr(exc)}
+out["fsync_eio"] = attempt2()
+S.os.fsync = real_fsync
+out["fsync_eio"]["live_knows"] = s3.handle({"cmd": "lookup", "action_id": "M-1"})["verdict"] is not None
+s4 = S.Store(S.Journal(journal))
+out["fsync_eio"]["restart_knows"] = s4.handle({"cmd": "lookup", "action_id": "M-1"})["verdict"] is not None
+rows = [json.loads(line) for line in real_open(journal, encoding="utf-8") if line.strip()]
+seqs = [row["store_seq"] for row in rows]
+out["fsync_eio"]["unique_seq"] = len(seqs) == len(set(seqs))
+
+# 3. a partial line left by something else, then an acknowledged record, then a restart
+s5 = S.Store(S.Journal(journal))
+with real_open(journal, "ab") as fh:
+    fh.write(b'{"kind": "issued", "action_id": "T-2", "dig')
+ack = s5.handle({"cmd": "issue", "action_id": "T-3"})
+s6 = S.Store(S.Journal(journal))
+out["torn_tail"] = {"ack": ack, "survived": "T-3" in s6.handle({"cmd": "state"})["issued"]}
+
+print(json.dumps(out))
+"""
+
+
+def custom_f21(repo: str) -> tuple[bool, str]:
+    """F-04, in process, because a failed write cannot be arranged by editing evidence.
+
+    These are the reviewer's V19, V20 and V21 in one mode: an EIO on open, an EIO on fsync after
+    the bytes reached the page cache, and a partial line left by something else. Each one asks
+    the same question: did the store answer, and do memory and the next restart agree.
+    """
+    tree = fresh_copy(repo, "f21")
+    work = tempfile.mkdtemp(prefix="hfb-f21-journal-")
+    script = os.path.join(work, "store_io_case.py")
+    with open(script, "w", encoding="utf-8") as fh:
+        fh.write(STORE_IO_CASE)
+    proc = subprocess.run([sys.executable, script, tree, work], capture_output=True, text=True,
+                          timeout=120)
+    if proc.returncode != 0:
+        return False, "the case did not run: %s" % (proc.stderr or proc.stdout)[-300:]
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def answered(case):
+        reply = case.get("reply") or {}
+        return (not case["raised"]) and reply.get("ok") is False and reply.get("durable") is False
+
+    open_ok = answered(out["open_eio"]) and not out["open_eio"]["live_knows"]         and not out["open_eio"]["restart_knows"]
+    fsync_case = out["fsync_eio"]
+    fsync_ok = answered(fsync_case) and fsync_case["live_knows"] == fsync_case["restart_knows"]         and fsync_case["unique_seq"]
+    torn_ok = out["torn_tail"]["survived"] and out["torn_tail"]["ack"].get("ok") is True
+    detail = ("open EIO answered %s, fsync EIO answered %s and left memory and disk in step %s, "
+              "record after a torn tail survived %s"
+              % (open_ok, fsync_ok, fsync_case["live_knows"] == fsync_case["restart_knows"],
+                 torn_ok))
+    return open_ok and fsync_ok and torn_ok, detail
+
+
+def fingerprint(rundir: str) -> dict:
+    out = {}
+    for root, _dirs, files in os.walk(rundir):
+        for name in files:
+            path = os.path.join(root, name)
+            with open(path, "rb") as fh:
+                out[os.path.relpath(path, rundir)] = hashlib.sha256(fh.read()).hexdigest()
+    return out
+
+
+def custom_f22(repo: str) -> tuple[bool, str]:
+    """F-09, where the subject is the tool rather than the run.
+
+    One directory is not two runs, and a challenge run may not edit the evidence it was pointed
+    at. Both were files that looked like results and were not.
+    """
+    tree = fresh_copy(repo, "f22")
+    rundir = run_suite(tree)
+    subprocess.run([sys.executable, "verify.py", rundir, rundir], cwd=tree,
+                   capture_output=True, text=True)
+    with open(os.path.join(rundir, "verify-report.json"), encoding="utf-8") as fh:
+        report = json.load(fh)
+    determinism = next(row for row in report["checks"] if row["id"] == "determinism")
+    refused = (determinism["result"] == "fails"
+               and determinism["evidence"].get("same_directory") is not None)
+
+    before = fingerprint(rundir)
+    proc = subprocess.run([sys.executable, "challenge.py", rundir], cwd=tree,
+                          capture_output=True, text=True, timeout=300)
+    after = fingerprint(rundir)
+    untouched = before == after
+    detail = ("same directory refused: %s; challenge exit %d left the evidence %s"
+              % (refused, proc.returncode,
+                 "unchanged" if untouched else "changed: %s" % ", ".join(
+                     sorted(set(before) ^ set(after)))))
+    return refused and untouched and proc.returncode == 0, detail
+
+
+CUSTOM = {"f20": custom_f20, "f21": custom_f21, "f22": custom_f22}
+
+
 def run_mode(repo: str, mode: str) -> tuple[bool, str]:
+    if MODES[mode][1] == "custom":
+        return CUSTOM[mode](repo)
     work = tempfile.mkdtemp(prefix="hfb-regression-")
     tree = os.path.join(work, "host-failure-benchmark")
     shutil.copytree(repo, tree, ignore=shutil.ignore_patterns(
@@ -356,7 +646,7 @@ def run_mode(repo: str, mode: str) -> tuple[bool, str]:
         if MODES[mode][1] == "after-run":
             apply_after_run(tree, rundir, mode)
 
-        if mode == "f3":
+        if mode in ("f3", "f16", "f17"):
             # The assertion is not a failing check: a forged verdict must not erase a gap.
             proc, port = start_store(tree, rundir)
             try:
@@ -364,7 +654,8 @@ def run_mode(repo: str, mode: str) -> tuple[bool, str]:
             finally:
                 stop_store(proc)
             kept = "C-3003" in gaps
-            return kept, "C-3003 named as a gap: %s" % ("yes" if kept else "no")
+            return kept, "C-3003 still named as a gap after a restart on that journal: %s" % (
+                "yes" if kept else "no, the row closed the gap")
 
         run_verify(tree, rundir)
         wanted, forbidden = MODES[mode][2], MODES[mode][3]
