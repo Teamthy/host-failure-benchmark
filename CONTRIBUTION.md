@@ -2,6 +2,9 @@
 
 Kept from the first commit, so that author order and venue at finalisation rest on something written down rather than on memory. Dates are the date the contribution was made, not the date it was edited.
 
+Repository: https://github.com/Teamthy/host-failure-benchmark
+First commit `5bb8a7c`, 2026-11-01. Line endings pinned to LF in `.gitattributes` so a clone on Windows produces the same bytes as a clone on Linux.
+
 ## Per file
 
 | File | Written by | First version | Basis |
@@ -35,7 +38,9 @@ Kept from the first commit, so that author order and venue at finalisation rest 
 
 ## Open decisions
 
-**The timestamp question.** The build assumes that Class P carries the time a decision was made, and claims nothing about whether that time is true. This reading has not been confirmed by Behar. It is recorded here, and in the note, as an open decision rather than as agreed scope. If he reads the row differently, C and C' still stand and the timestamp claim is withdrawn.
+**The timestamp question. CLOSED 2026-11-01, 1:27 PM.** Confirmed by Behar Dalipi in writing: "Class P preserves the original T1 timestamp through replay without independently establishing its accuracy or authenticity as the actual decision time. The distinction between a source-asserted timestamp and an independently verified timestamp should remain explicit in the specification and benchmark results."
+
+Acting on that: `verify.py` prints the distinction in every result, the JSON report carries it as a field named `timestamp`, and the note states it in the results section rather than only in the limitations. The claim is a carried time, not an attested one.
 
 **Author order.** Unsettled by design. It is fixed at finalisation against the tables above.
 

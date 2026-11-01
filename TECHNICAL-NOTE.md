@@ -28,7 +28,7 @@ Eight scenarios, each one invocation of the host, each with a named failure rath
 | --- | --- | --- |
 | A | expectation registered, verdict suppressed | is the absence nameable |
 | A' | same, no expectation registered | is it nameable without one |
-| B | verdict committed locally, ship fails, store recovers | does the record carry the time it was decided |
+| B | verdict committed locally, ship fails, store recovers | does the record carry the source-asserted decision time |
 | C | issued id plus preserved commitment, host killed | can the gap be described with content |
 | C' | issued id only, host killed | can it be named without content |
 | C'' | locally minted id, host killed | is there anything at all |
@@ -71,8 +71,12 @@ Python 3.9 or newer, standard library only. `run.py` produces a run directory an
 
 Every check is written as a claim paired with the counterclaim that would refute it. When one fails, the output names the thing that refused it.
 
-One reading is still open. The build assumes Class P carries the time a decision was made and claims nothing about whether that time is true. If that reading is wrong, C and C' stand unchanged and the timestamp claim is withdrawn.
+The timestamp distinction, which the second author asked to remain explicit in both the specification and the results, is closed and reported. Class P preserves the original decision time through replay without independently establishing that it is the true moment of decision. That time is source-asserted. The suite prints this on every run, and the result file carries it as a field, so a reader cannot mistake a carried timestamp for an attested one. A mechanism that would bring independent attestation inside the claim would need a clock the host cannot set, which this suite deliberately does not have.
 
 ## Citation
 
-This is the authors' own work and is not an industry standard. Cite it by commit hash rather than by title, so a reader gets the version that was actually tested.
+This is the authors' own work and is not an industry standard.
+
+Repository: https://github.com/Teamthy/host-failure-benchmark
+
+Cite it by commit hash rather than by title, so a reader gets the version that was actually tested. The suite as published was run on Windows with Python 3.14.5 and on Linux, and the two produced identical artifacts.

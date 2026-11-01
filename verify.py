@@ -365,6 +365,8 @@ def report(rundir):
     print("Class V (verification):            %d of %d hold" % (v_held, len(v_rows)))
     print("Named gap at M3: C = name with content, C' = name only, C'' = silence.")
     print("Strength is reported, not scored. The three are not gradations of one result.")
+    print("Decision time: source-asserted. Carried through replay in M2, never independently "
+          "attested by anything in this suite.")
     failures = [r for r in RESULTS if r["result"] == "fails"]
     print("")
     print("VERDICT: %s" % ("every check holds" if not failures
@@ -373,7 +375,9 @@ def report(rundir):
         json.dump({"checks": RESULTS,
                    "summary": {"class_P": [p_held, len(p_rows)],
                                "class_V": [v_held, len(v_rows)],
-                               "failures": [r["id"] for r in failures]}},
+                               "failures": [r["id"] for r in failures],
+                               "timestamp": "source-asserted, preserved through replay, "
+                                            "not independently verified"}},
                   fh, indent=2, sort_keys=True)
     return 0 if not failures else 1
 
