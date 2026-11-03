@@ -1,0 +1,4 @@
+f16  caught  a journal row that asserts state=verified over an unsigned record, then a restart
+             C-3003 still named as a gap after a restart on that journal: yes
+
+Every counterexample from the review is caught by the check that claims to catch it.

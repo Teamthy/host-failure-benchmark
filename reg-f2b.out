@@ -1,0 +1,4 @@
+f2b  caught  WAL decision_ts changed after replay, store untouched
+             failed: B, B.wal
+
+Every counterexample from the review is caught by the check that claims to catch it.

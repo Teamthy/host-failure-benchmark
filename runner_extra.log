@@ -1,0 +1,14 @@
+== R6: run.py always exits 3
+rc=1; modes reported: 0; the suite did not complete for this mode: run.py produced no artifact directory (exit 3)
+== R7: verify.py raises on import
+rc=1
+f1 MISSED f10 MISSED f11 MISSED f13 MISSED f14 MISSED f16 caught f17 caught f18 MISSED f19 MISSED f20 MISSED f21 caught 
+== R9: recovery silently replays nothing
+unmutated: VERDICT: 5 check(s) failed
+regressions rc=1
+f1 caught f10 caught f11 caught f13 caught f14 caught f16 caught f17 caught f18 caught f19 caught f20 MISSED f21 caught f22 MISSED f2a MISSED f2b caught f3 caught f5 caught f7 caught f8 caught f9 caught 
+== R9b: scenario D ships unsigned
+unmutated: VERDICT: 2 check(s) failed
+regressions rc=1
+f1 caught f10 caught f11 caught f13 caught f14 caught f16 caught f17 caught f18 caught f19 caught f20 MISSED f21 caught f22 MISSED f2a caught f2b caught f3 caught f5 caught f7 caught f8 caught f9 caught 
+A counterexample the verifier still accepts is a claim it does not support.

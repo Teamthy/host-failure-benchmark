@@ -1,0 +1,4 @@
+f9   caught  the conflict record removed, leaving the first verdict to be read as the answer
+             failed: conflict
+
+Every counterexample from the review is caught by the check that claims to catch it.

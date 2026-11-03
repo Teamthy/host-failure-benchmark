@@ -1,0 +1,4 @@
+f14  caught  D-4004 decision_ts replaced with a Unix epoch value, re-signed, reframed
+             failed: D
+
+Every counterexample from the review is caught by the check that claims to catch it.

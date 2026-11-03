@@ -1,0 +1,4 @@
+f10  caught  the host accepting any well-formed reply, as it did before the patch
+             failed: reply-checked, scenarios-ran
+
+Every counterexample from the review is caught by the check that claims to catch it.

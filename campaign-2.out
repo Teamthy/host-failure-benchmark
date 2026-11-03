@@ -1,0 +1,40 @@
+f1   caught  WAL verdict flipped BLOCK to ALLOW and replayed with its stale signature
+             failed: B, B.decision, scenarios-ran
+f10  caught  the host accepting any well-formed reply, as it did before the patch
+             failed: reply-checked, scenarios-ran
+f11  caught  the store indexing memory before the journal, as it did before the patch
+             failed: conflict, journal-first
+f13  caught  host-B.jsonl cut mid-line, as a crash during an append leaves it
+             failed: B, B.decision, artifacts-parse, scenarios-ran
+f14  caught  D-4004 decision_ts replaced with a Unix epoch value, re-signed, reframed
+             failed: D
+f16  caught  a journal row that asserts state=verified over an unsigned record, then a restart
+             C-3003 still named as a gap after a restart on that journal: yes
+f17  caught  a record signed for D-4004 filed under C-3003, then a restart
+             C-3003 still named as a gap after a restart on that journal: yes
+f18  caught  two differently signed D-4004 verdicts with the conflict record removed
+             failed: D, conflict, reconcile
+f19  caught  the host accepting a reply that was neither stored nor resolved, as it did before P2
+             failed: D'.effect, scenarios-ran
+f20  caught  a routine restart after a valid run, against the binding P2 replaced
+             routine restart then verify: failed nothing; the pre-P2 binding on the same restart: failed B
+f21  caught  a journal whose open() and fsync() raise EIO during a verdict append
+             open EIO answered True, fsync EIO answered True and left memory and disk in step True, record after a torn tail survived True
+f22  caught  one directory compared with itself, and a challenge that edits the evidence
+             same directory refused: True; challenge exit 0 left the evidence unchanged
+f2a  caught  WAL decision_ts changed before replay and re-signed, so the record agrees with it
+             failed: B
+f2b  caught  WAL decision_ts changed after replay, store untouched
+             failed: B, B.wal
+f3   caught  unsigned verdict for C-3003 appended and reframed
+             C-3003 still named as a gap after a restart on that journal: yes
+f5   caught  the seven host journals that prove scenarios ran deleted
+             failed: D, artifacts-complete, scenarios-ran
+f7   caught  the bytes a repair removed deleted, so recovery destroys what it recovered
+             failed: artifacts-complete, repair-quarantine
+f8   caught  D-4004 actor and policy rewritten and re-signed with the fixture key
+             failed: D
+f9   caught  the conflict record removed, leaving the first verdict to be read as the answer
+             failed: conflict
+
+Every counterexample from the review is caught by the check that claims to catch it.

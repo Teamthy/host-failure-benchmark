@@ -1,0 +1,27 @@
+== R1: each mode alone, 240 s timeout
+f1   rc=0     1.18s   failed: B, B.decision, scenarios-ran
+f2a  rc=0     1.23s   failed: B
+f2b  rc=0     1.16s   failed: B, B.wal
+f3   rc=0     1.13s   C-3003 still named as a gap after a restart on that journal: yes
+f5   rc=0     0.86s   failed: D, artifacts-complete, scenarios-ran
+f7   rc=0     0.91s   failed: artifacts-complete, repair-quarantine
+f8   rc=0     0.83s   failed: D
+f9   rc=0     0.94s   failed: conflict
+f10  rc=0     0.97s   failed: reply-checked, scenarios-ran
+f11  rc=0     0.85s   failed: conflict, journal-first
+f13  rc=0     0.95s   failed: B, B.decision, artifacts-parse, scenarios-ran
+f14  rc=0     0.93s   failed: D
+== R2: when does piped output arrive? (PYTHONUNBUFFERED unset)
+exit=0 chunks(t, bytes)=[(17.03, 2784)]
+== R3: simulated slow store start
+R3a (f3's own store start takes 11 s): rc=1 after 15 s
+f1 caught f10 caught f11 caught f13 caught f14 caught 
+store did not announce a port
+R3b f1 with 3 s per store start: rc=0 15.90 s
+R3b f11 with 3 s per store start: rc=0 15.94 s
+R3b f3 with 3 s per store start: rc=0 19.01 s
+== R4: the checkout is unchanged by a full campaign
+campaign rc=0
+R4: identical
+== R5: a child that never returns
+R5: rc=124 after 45 s; output bytes: 0

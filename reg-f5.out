@@ -1,0 +1,4 @@
+f5   caught  the seven host journals that prove scenarios ran deleted
+             failed: D, artifacts-complete, scenarios-ran
+
+Every counterexample from the review is caught by the check that claims to catch it.

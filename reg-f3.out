@@ -1,0 +1,4 @@
+f3   caught  unsigned verdict for C-3003 appended and reframed
+             C-3003 still named as a gap after a restart on that journal: yes
+
+Every counterexample from the review is caught by the check that claims to catch it.

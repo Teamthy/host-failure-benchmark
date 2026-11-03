@@ -1,0 +1,4 @@
+f18  caught  two differently signed D-4004 verdicts with the conflict record removed
+             failed: D, conflict, reconcile
+
+Every counterexample from the review is caught by the check that claims to catch it.

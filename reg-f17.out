@@ -1,0 +1,4 @@
+f17  caught  a record signed for D-4004 filed under C-3003, then a restart
+             C-3003 still named as a gap after a restart on that journal: yes
+
+Every counterexample from the review is caught by the check that claims to catch it.

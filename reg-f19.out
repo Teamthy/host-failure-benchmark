@@ -1,0 +1,4 @@
+f19  caught  the host accepting a reply that was neither stored nor resolved, as it did before P2
+             failed: D'.effect, scenarios-ran
+
+Every counterexample from the review is caught by the check that claims to catch it.

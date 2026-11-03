@@ -1,0 +1,4 @@
+f11  caught  the store indexing memory before the journal, as it did before the patch
+             failed: conflict, journal-first
+
+Every counterexample from the review is caught by the check that claims to catch it.

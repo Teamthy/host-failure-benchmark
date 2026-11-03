@@ -1,0 +1,4 @@
+f8   caught  D-4004 actor and policy rewritten and re-signed with the fixture key
+             failed: D
+
+Every counterexample from the review is caught by the check that claims to catch it.

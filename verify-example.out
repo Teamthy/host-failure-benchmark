@@ -1,0 +1,30 @@
+reconcile    meta holds  the store's reconciliation report matches what its own journal implies, so the r
+A            P    holds  A guard decision that never left the host is still nameable as missing, because 
+A'           P    holds  without a prior expectation the same failure leaves no name at all, so M1 depend
+B            P    holds  a verdict committed locally before a failed ship survives, and lands later carry
+B.decision   P    holds  the verdict that survived recovery is the decision the host recorded when it mad
+B.wal        P    holds  the timestamp in the store's record is the one the host wrote down before the sh
+B.effect     P    holds  the effect did not proceed while the verdict was undurable centrally, so a lost 
+C            P    holds  an issued id plus a preserved commitment names the gap and carries its content, 
+C'           P    holds  issuance alone names the gap with no content, so the record knows an action was 
+C''          P    holds  a locally minted id leaves silence: the store cannot name the action at all, and
+D            V    holds  a complete record verifies against the key it carries, and the descriptor digest
+D'           V    holds  a preserved record whose binding does not verify is quarantined and never counte
+D'.effect    V    holds  the effect did not proceed on a record the store could not resolve, so quarantin
+journal-first P    holds  a store that cannot journal a verdict does not report it as known, in memory or 
+repair-quarantine P    holds  a repair that shortens a journal keeps the bytes it removed, so what was in flig
+conflict     P    holds  two verdicts that disagree are recorded as a conflict with both sequence numbers
+reply-checked P    holds  the host logs an effect only when the store's reply names the action that was as
+artifacts-complete meta holds  every artifact the run is supposed to produce is present, and the manifest says 
+scenarios-ran meta holds  each scenario left the events that show it ran to the point it is named for, rat
+store-records-framed meta holds  each record in the store journal carries a digest of itself, so a write that sto
+line-endings meta holds  every artifact uses one newline convention, so a run on Windows is the same byte
+no-wall-clock meta holds  every timestamp in every artifact is a counter step, so two runs agree byte for 
+
+Class P (persistence and recovery): 13 of 13 hold
+Class V (verification):            3 of 3 hold
+Named gap at M3: C = name with content, C' = name only, C'' = silence.
+Strength is reported, not scored. The three are not gradations of one result.
+Decision time: source-asserted. Carried through replay in M2, never independently attested by anything in this suite.
+
+VERDICT: every check holds

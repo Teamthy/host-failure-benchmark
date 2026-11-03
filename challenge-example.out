@@ -1,0 +1,28 @@
+baseline: 22 checks hold
+
+stamp-at-replay      caught  B-2001 now claims a decision time it never had
+                             failed: B, B.wal
+drop-expectation     caught  the expectation for A-1042 is gone
+                             failed: A, conflict, reconcile
+name-the-silence     caught  C-3005 was never issued, but the store now holds it
+                             failed: C'', reconcile
+rewrite-content      caught  the commitment for C-3003 was swapped for a wrong digest
+                             failed: C, reconcile
+bless-the-unbound    caught  D-4005 was signed after the fact
+                             failed: D', reconcile
+dirty-the-signature  caught  one byte of D-4004's binding was altered
+                             failed: D, reconcile
+crlf-the-journal     caught  the store journal now carries CRLF, as Windows text mode writes it
+                             failed: line-endings
+torn-tail            caught  the last record in the journal was cut in half
+                             failed: artifacts-readable
+break-a-frame        caught  an expectation was edited and its frame was not recomputed
+                             failed: store-records-framed
+drop-conflict        caught  the conflict record between the two verdicts for C-9009 is gone
+                             failed: conflict
+
+verifier on a directory that is not there              held    exit 2, Nothing was verified. This is not a pass, and it is not a failure of a run.
+determinism against a run with artifacts missing       held    determinism fails
+the run you pointed me at is unchanged                 held    no file added, removed or rewritten
+
+Every mutation was caught by the check that claims to catch it.

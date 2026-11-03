@@ -1,0 +1,4 @@
+f22  caught  one directory compared with itself, and a challenge that edits the evidence
+             same directory refused: True; challenge exit 0 left the evidence unchanged
+
+Every counterexample from the review is caught by the check that claims to catch it.

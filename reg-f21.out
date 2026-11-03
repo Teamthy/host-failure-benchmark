@@ -1,0 +1,4 @@
+f21  caught  a journal whose open() and fsync() raise EIO during a verdict append
+             open EIO answered True, fsync EIO answered True and left memory and disk in step True, record after a torn tail survived True
+
+Every counterexample from the review is caught by the check that claims to catch it.

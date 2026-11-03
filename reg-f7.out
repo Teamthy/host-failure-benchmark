@@ -1,0 +1,4 @@
+f7   caught  the bytes a repair removed deleted, so recovery destroys what it recovered
+             failed: artifacts-complete, repair-quarantine
+
+Every counterexample from the review is caught by the check that claims to catch it.

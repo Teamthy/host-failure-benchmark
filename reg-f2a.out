@@ -1,0 +1,4 @@
+f2a  caught  WAL decision_ts changed before replay and re-signed, so the record agrees with it
+             failed: B
+
+Every counterexample from the review is caught by the check that claims to catch it.

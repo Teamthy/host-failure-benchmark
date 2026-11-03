@@ -1,0 +1,74 @@
+[
+  {
+    "expected": "if the mutation is inert, the re-signed record equals the WAL record byte for byte",
+    "observed": "replay_step=1 new_ts=2 identical_to_wal=True; verify exit=0 {'B': 'holds', 'B.wal': 'holds', 'B.decision': 'holds', 'no-wall-clock': 'holds'}",
+    "outcome": "developer claim reproduced",
+    "id": "P01",
+    "title": "V04 exactly as shipped (replay stamps step+1)",
+    "kind": "V04"
+  },
+  {
+    "expected": "caught (B and/or B.wal fail)",
+    "observed": "replay_step=1 new_ts=6 identical_to_wal=False; verify exit=1 {'B': 'fails', 'B.wal': 'fails', 'B.decision': 'holds', 'no-wall-clock': 'holds'}",
+    "outcome": "detected",
+    "id": "P02",
+    "title": "Clock-skew variant: replay stamps step+5 and re-signs",
+    "kind": "V04"
+  },
+  {
+    "expected": "(attestation test) an independent clock would refuse a decision time the host rewrote",
+    "observed": "verify exit=0 {'B': 'holds', 'B.wal': 'holds', 'B.decision': 'holds', 'no-wall-clock': 'holds'}; VERDICT: every check holds",
+    "outcome": "accepted: divergence detection only",
+    "id": "P03",
+    "title": "Consistent skew in every host-written artifact (decision_ts 1 instead of 2)",
+    "kind": "V04"
+  },
+  {
+    "expected": "no-wall-clock fails, or B refuses a decision time outside the counter's range",
+    "observed": "verify exit=0 {'B': 'holds', 'B.wal': 'holds', 'B.decision': 'holds', 'no-wall-clock': 'holds'}; VERDICT: every check holds",
+    "outcome": "accepted",
+    "id": "P04",
+    "title": "Consistent wall-clock decision time (Unix epoch) in every host-written artifact",
+    "kind": "V04"
+  },
+  {
+    "expected": "no file added, removed or rewritten; content hashes identical",
+    "observed": "{\"example/run\": {\"exit\": 0, \"files\": 20, \"changed\": [], \"tool_says\": [\"no\", \"file\", \"added,\", \"removed\", \"or\", \"rewritten\"], \"temp_left\": [\"hfb-absent-b5hhql7r\"]}, \"fresh run\": {\"exit\": 0, \"files\": 24, \"changed\": [], \"tool_says\": [\"no\", \"file\", \"added,\", \"removed\", \"or\", \"rewritten\"], \"temp_left\": [\"hfb-absent-1_tmcp93\"]}}",
+    "outcome": "property holds",
+    "id": "P05",
+    "title": "N13 revised: sha256 inventory of the evidence directory before and after challenge.py",
+    "kind": "N13"
+  },
+  {
+    "expected": "the tool reports MISSED and exits 1",
+    "observed": "exit=1; stray.txt",
+    "outcome": "detected",
+    "id": "P06",
+    "title": "N13 revised: does challenge.py's own fingerprint catch a challenge that writes into the run?",
+    "kind": "N13"
+  },
+  {
+    "expected": "a repair record names the quarantined bytes, as the start-up repair does",
+    "observed": "journal kinds=['boot', 'issued', 'issued', 'boot']; quarantine files=['store.jsonl.quarantine-1.bin']; issued after restart=['T-1', 'T-3']",
+    "outcome": "silent: bytes kept in a side file, no journal record",
+    "id": "P07",
+    "title": "A torn tail cut out at runtime: is the repair announced in the journal?",
+    "kind": "new"
+  },
+  {
+    "expected": "the reply describes what is on disk",
+    "observed": "{\"reply\": {\"ok\": false, \"durable\": false, \"error\": \"OSError: [Errno 28] No space left on device\"}, \"second_verdict_on_disk\": true, \"live_state\": \"conflicted\", \"restart_state\": \"conflicted\", \"conflict_record\": false}",
+    "outcome": "reply contradicts disk",
+    "id": "P08",
+    "title": "Second verdict written, then the conflict-record append fails",
+    "kind": "new"
+  },
+  {
+    "expected": "(feasibility) each case flagged, valid run not flagged",
+    "observed": "{\"valid run\": {\"verify_exit\": 0, \"extra_checks\": {\"findings\": []}}, \"V28 main-journal repair\": {\"verify_exit\": 0, \"extra_checks\": {\"findings\": [\"repair record at store_seq 3 (37 bytes quarantined)\"]}}, \"V30 deletion, frames intact\": {\"verify_exit\": 0, \"extra_checks\": {\"findings\": [\"store_seq gap with no repair record: [8, 9]\"]}}, \"V31 invented id\": {\"verify_exit\": 1, \"extra_checks\": {\"findings\": [\"issued id C-3006 appears in no host journal\"]}}, \"V32 commitment replaced\": {\"verify_exit\": 0, \"extra_checks\": {\"findings\": [\"verdict for D-4004 carries descriptor sha256:a75253d1..., commitment says sha256:00000000...\"]}}}",
+    "outcome": "all four detectable, no false positive",
+    "id": "P09",
+    "title": "Open cases V28, V30, V31, V32: detectable with a few checks and no signed sequence?",
+    "kind": "open"
+  }
+]

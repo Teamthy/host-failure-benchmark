@@ -1,0 +1,4 @@
+f13  caught  host-B.jsonl cut mid-line, as a crash during an append leaves it
+             failed: B, B.decision, artifacts-parse, scenarios-ran
+
+Every counterexample from the review is caught by the check that claims to catch it.
