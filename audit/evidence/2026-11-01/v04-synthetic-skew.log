@@ -1,0 +1,45 @@
+# V04-SKEW synthetic variant, generated %Y-%m-%dT%H:%M:%SZ
+# tree: host-failure-benchmark, working branch arena/118bcd14-linkedin-emphire
+# command: python3 audit/v04_synthetic_skew.py --skew 5
+
+V04-SKEW  synthetic clock-skew variant  (tests the binding property only)
+
+PRECONDITIONS
+  1. The tree under test is this checkout; run.py drives scenario B, initial then replay.
+  2. The clock is the benchmark's deterministic step counter. No wall clock is used.
+  3. The mutation under review is applied to the replay path only: the record's
+     decision_ts is re-stamped with the replay clock's own step and re-signed.
+  4. The fixtures use the deterministic test key. This says nothing about key security.
+  5. The divergence is SYNTHETIC: 5 replay steps are injected before the re-stamp.
+
+EXPECTED
+  control (skew 0)   : the two timestamps are equal, the record is byte-identical to the
+                       WAL record, every check holds, verify exits 0
+  variant (skew 5   ): the two timestamps differ, the record is not the WAL record
+                       the binding check B and the independent WAL comparison B.wal
+                       both fail, and verify exits 1
+
+  Neither case attests that the timestamp came from an independent clock. No such
+  attestation exists in this design, and the variant does not imply one.
+
+OBSERVED, control (skew 0)
+  wal_ts=2  stored_ts=2  record_identical_to_wal=True
+  verify exit=0  failed=nothing
+  last line: VERDICT: every check holds
+
+OBSERVED, variant (skew 5)
+  wal_ts=2  stored_ts=7  record_identical_to_wal=False
+  verify exit=1  failed=B, B.wal
+  last line: VERDICT: 2 check(s) failed
+
+ASSERTIONS
+  PASS  control leaves the mutation inert  (wal_ts=2 stored_ts=2 identical=True)
+  PASS  control passes every check  (exit=0 failed=nothing)
+  PASS  variant produces two different timestamps  (stored_ts 7 != wal_ts 2)
+  PASS  variant record is not the WAL record  (identical=False)
+  PASS  variant is caught by the binding check and by the WAL comparison  (failed=B, B.wal)
+  PASS  variant fails the suite  (exit=1)
+
+RESULT: PASS
+Scope: the record must not be accepted when its timestamp changed between the decision
+and the ship. Independent timestamp attestation is out of scope and is not claimed.
