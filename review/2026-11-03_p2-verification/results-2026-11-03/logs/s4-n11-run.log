@@ -9,7 +9,7 @@
    observed: exit=1 traceback=False last='VERDICT: 1 check(s) failed' report_written=True
 [AS-DOC] N04 second directory missing
    expected: determinism fails naming the directory; exit 1
-   observed: exit=1 determinism=fails missing_directories=['/tmp/v3fix-b7_a9fs0/nope']
+   observed: exit=1 determinism=fails missing_directories=['/tmp/v3fix-gdx8pqd0/nope']
 [AS-DOC] N05 second run missing one artifact
    expected: determinism fails
    observed: exit=1 determinism=fails missing=['wal-B.jsonl']
@@ -30,14 +30,14 @@
    observed: exit=1 traceback=False
 [AS-DOC] N11 stale unwritable report
    expected: n/a
-   observed: not testable here: chattr +i refused (chattr: Operation not permitted while setting flags on /tmp/v2run-w35rdkf4/verify-report.json)
+   observed: not testable here: chattr +i refused (chattr: Operation not permitted while setting flags on /tmp/v2run-qnhszyg6/verify-report.json)
 [AS-DOC] N12 challenge.py when its fixed 'no-such-run' path exists
    expected: the input check still tests a missing path
    observed: challenge exit=0; verifier on a directory that is not there              held    exit 2, Nothing was verified. This is not a pass, and it is not a failure of a run.
 Traceback (most recent call last):
-  File "/tmp/pkgrun/v3fixes.py", line 148, in <module>
+  File "/tmp/p2/evidence/v3fixes.py", line 148, in <module>
     main()
-  File "/tmp/pkgrun/v3fixes.py", line 139, in main
+  File "/tmp/p2/evidence/v3fixes.py", line 139, in main
     left = json.load(open(J(a, "verify-report.json")))
                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-FileNotFoundError: [Errno 2] No such file or directory: '/tmp/v2run-wfgrek7a/verify-report.json'
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/v2run-5xwa_71d/verify-report.json'

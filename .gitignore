@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 verify-report.json
 *.patch
+review/2026-11-03_p2-verification/scripts/p2probes.json

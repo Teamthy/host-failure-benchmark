@@ -1,0 +1,5 @@
+
+[P07] A torn tail cut out at runtime: is the repair announced in the journal?
+   expected: a repair record names the quarantined bytes, as the start-up repair does
+   observed: journal kinds=['boot', 'issued', 'issued', 'boot']; quarantine files=['store.jsonl.quarantine-1.bin']; issued after restart=['T-1', 'T-3']
+   outcome:  silent: bytes kept in a side file, no journal record

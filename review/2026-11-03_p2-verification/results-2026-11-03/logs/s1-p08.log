@@ -1,0 +1,5 @@
+
+[P08] Second verdict written, then the conflict-record append fails
+   expected: the reply describes what is on disk
+   observed: {"reply": {"ok": false, "durable": false, "error": "OSError: [Errno 28] No space left on device"}, "second_verdict_on_disk": true, "live_state": "conflicted", "restart_state": "conflicted", "conflict_record": false}
+   outcome:  reply contradicts disk

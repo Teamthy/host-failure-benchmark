@@ -1,0 +1,42 @@
+== R1: each mode alone, 240 s timeout
+runner_checks.sh: line 15: bc: command not found
+f1   rc=0     0.00s   failed: B, B.decision, scenarios-ran
+runner_checks.sh: line 15: bc: command not found
+f2a  rc=0     0.00s   failed: B
+runner_checks.sh: line 15: bc: command not found
+f2b  rc=0     0.00s   failed: B, B.wal
+runner_checks.sh: line 15: bc: command not found
+f3   rc=0     0.00s   C-3003 still named as a gap after a restart on that journal: yes
+runner_checks.sh: line 15: bc: command not found
+f5   rc=0     0.00s   failed: D, artifacts-complete, scenarios-ran
+runner_checks.sh: line 15: bc: command not found
+f7   rc=0     0.00s   failed: artifacts-complete, repair-quarantine
+runner_checks.sh: line 15: bc: command not found
+f8   rc=0     0.00s   failed: D
+runner_checks.sh: line 15: bc: command not found
+f9   rc=0     0.00s   failed: conflict
+runner_checks.sh: line 15: bc: command not found
+f10  rc=0     0.00s   failed: reply-checked, scenarios-ran
+runner_checks.sh: line 15: bc: command not found
+f11  rc=0     0.00s   failed: conflict, journal-first
+runner_checks.sh: line 15: bc: command not found
+f13  rc=0     0.00s   failed: B, B.decision, artifacts-parse, scenarios-ran
+runner_checks.sh: line 15: bc: command not found
+f14  rc=0     0.00s   failed: D
+== R2: when does piped output arrive? (PYTHONUNBUFFERED unset)
+exit=0 chunks(t, bytes)=[(15.63, 2784)]
+== R3: simulated slow store start
+R3a (f3's own store start takes 11 s): rc=1 after 15 s
+f1 caught f10 caught f11 caught f13 caught f14 caught 
+store did not announce a port
+runner_checks.sh: line 48: bc: command not found
+R3b f1 with 3 s per store start: rc=0  s
+runner_checks.sh: line 48: bc: command not found
+R3b f11 with 3 s per store start: rc=0  s
+runner_checks.sh: line 48: bc: command not found
+R3b f3 with 3 s per store start: rc=0  s
+== R4: the checkout is unchanged by a full campaign
+campaign rc=0
+R4: identical
+== R5: a child that never returns
+R5: rc=124 after 45 s; output bytes: 0

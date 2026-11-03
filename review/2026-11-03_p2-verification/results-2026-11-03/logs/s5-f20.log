@@ -1,0 +1,4 @@
+f20  caught  a routine restart after a valid run, against the binding P2 replaced
+             routine restart then verify: failed nothing; the pre-P2 binding on the same restart: failed B
+
+Every counterexample from the review is caught by the check that claims to catch it.
