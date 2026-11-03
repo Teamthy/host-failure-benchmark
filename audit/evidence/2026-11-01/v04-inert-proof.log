@@ -1,0 +1,7 @@
+repo under test: /tmp/hfb
+-- Behar's V04 mutation exactly (self.clock.step + 1) --
+v04-exact delta=+1  wal_ts=2 stored_ts=2  record_identical_to_wal=True  B=holds  B.wal=holds  B.decision=holds  exit=0
+         last line: VERDICT: every check holds
+-- same mutation, replay clock far from the decision step (+5) --
+v04-plus5 delta=+5  wal_ts=2 stored_ts=6  record_identical_to_wal=False  B=fails  B.wal=fails  B.decision=holds  exit=1
+         last line: VERDICT: 2 check(s) failed

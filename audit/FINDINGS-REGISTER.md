@@ -5,6 +5,23 @@ Olusanya Timothy, 1 November 2026. Against `Teamthy/host-failure-benchmark`. The
 `96d3e59aa016a534dcb694506ed954b624c1667ea783797b78d80a1169895e09`. Every row can be checked
 out, not just reproduced from a patch.
 
+## Attribution
+
+- **Reviewer.** Behar Dalipi, research collaborator, conducted the independent technical
+  verification, the failure-model analysis and the adversarial testing recorded here. His 36
+  outcome tests and 13 input checks are the source of every case in this register.
+- **Author.** Olusanya Timothy implemented the benchmark and the remediation, and wrote this
+  register and the disposition that accompanies it. The findings are the reviewer's; the fixes,
+  the verdicts and the reasoning against a finding are the author's.
+- **What the reviewer's contribution is and is not.** It is verification and adversarial testing.
+  It is not an endorsement of the benchmark, and no row here should be read as one. Where a row is
+  disputed, the reviewer's position and the author's are both recorded in the row.
+- **State at the time of writing.** The reviewer's independent rerun against `006d7ee` was in
+  progress. No result from that rerun is included in this document, and nothing here should be read
+  as reporting one.
+- **Provenance of this section.** Added on 1 November 2026 at the reviewer's request, so that the
+  permanent record names him and keeps his verification separate from the author's remediation.
+
 One row per finding. A row is **closed** only when a mode in `audit/regressions.py` fails
 without the fix. That rule has not changed since the first version of this register. Six rows now
 meet it: F-01, F-02, F-03, F-04, F-05 and F-09, each with a mode named in the row. The rest stay
@@ -25,7 +42,7 @@ Status words mean one thing each:
 ## Where the numbers come from
 
 The reviewer shipped 36 outcome tests and 13 input checks. Re-run unchanged against `df0cf5a`,
-his own results file marks 23 outcomes as defects and 9 as documented. Against P2 it marks 9 as
+the reviewer's own results file marks 23 outcomes as defects and 9 as documented. Against P2 it marks 9 as
 defects and 22 as documented. The per-case table, with the disposition of every one of the 49
 cases, is `DISPOSITION-2026-11-01.md`. Every count in this register comes from that table.
 
@@ -34,13 +51,13 @@ cases, is `DISPOSITION-2026-11-01.md`. Every count in this register comes from t
 All three were reproduced on `df0cf5a` by hand, and all three turned out to be cases in his
 package: R1 is V05, R2 is V17, R3 is V19. Each now behaves as documented under P2.
 
-| id | finding | his case | fix | status |
+| id | finding | the reviewer's case | fix | status |
 | --- | --- | --- | --- | --- |
 | R1 | Recovery authenticated by trust: replay took `state` from the journal row instead of recomputing it, so an unsigned record that says `verified` closed a gap after a restart | V05, V06 | store recomputes state from the record bytes and the id the row is filed under, through one `bound_state()` in `bench/common.py` that the store and the verifier both import | closed, `f16` and `f17` |
 | R2 | An effect committed on a qualified acknowledgement: the host read `ok: true` without reading `state`, so the unsigned D' verdict still logged `effect_committed` | V15, V16, V17, V18 | a verdict reply must say `stored: true` and `state: "verified"`; anything else, including a closed connection, withholds the effect and names the reason | closed, `f19` |
 | R3 | I/O failure had no answer: a journal that could not be written raised inside the handler, printed a traceback and closed the connection with no reply | V19, V20, V21 | a failed append cuts the file back to its previous length and the store answers `ok: false, durable: false`; a damaged tail is quarantined before the next append; repair keeps the records that follow damage | closed, `f21` |
 
-## His findings, as F-numbered in the review
+## Findings raised by Behar Dalipi, as F-numbered in his review
 
 | id | finding | cases | fix | status |
 | --- | --- | --- | --- | --- |
@@ -59,8 +76,8 @@ package: R1 is V05, R2 is V17, R3 is V19. Each now behaves as documented under P
 
 | case | why |
 | --- | --- |
-| V04 | Replay step and decision step are both 2 in this run, so `record["decision_ts"] = self.clock.step + 1` rewrites the field with the value it already held, and re-signing produces identical bytes. `evidence/2026-11-01/v04-inert-proof.log` prints `record_identical_to_wal=True` for his exact mutation and `B=fails, B.wal=fails, exit=1` for the same mutation with the clocks five steps apart. `B.wal` compared the stored timestamp with the WAL before P2 as well. |
-| N13 | His check requires `challenge.py` to leave a passing report in the directory it was pointed at. I removed that behaviour, so the file it opens no longer exists and the check raises. The property is now asserted by the tool, every run, in its last line. |
+| V04 | Replay step and decision step are both 2 in this run, so `record["decision_ts"] = self.clock.step + 1` rewrites the field with the value it already held, and re-signing produces identical bytes. `evidence/2026-11-01/v04-inert-proof.log` prints `record_identical_to_wal=True` for the reviewer's exact mutation and `B=fails, B.wal=fails, exit=1` for the same mutation with the clocks five steps apart. `B.wal` compared the stored timestamp with the WAL before P2 as well. |
+| N13 | The reviewer's check requires `challenge.py` to leave a passing report in the directory it was pointed at. I removed that behaviour, so the file it opens no longer exists and the check raises. The property is now asserted by the tool, every run, in its last line. |
 
 ## Carried over, unchanged
 
@@ -85,7 +102,7 @@ Seven modes in `audit/regressions.py`, nineteen in all, every one caught:
 | f21 | open() and fsync() raising EIO during an append, in process | the store answers, and memory and disk agree |
 | f22 | one directory compared with itself, and a challenge over the evidence | the refusal, and the directory unchanged |
 
-His acceptance rule is both halves, so f20 tests both: the benign restart has to verify and the
+The reviewer's acceptance rule is both halves, so f20 tests both: the benign restart has to verify and the
 old binding has to fail on it. The other half is measured by the suite itself, which P2 leaves at
 13 of 13 Class P and 3 of 3 Class V, two runs byte-identical, and every mutation in
 `challenge.py` still caught.

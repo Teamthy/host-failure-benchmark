@@ -1,0 +1,43 @@
+[AS-DOC] N01 nonexistent run directory
+   expected: exit 2, message, no traceback, no report
+   observed: exit=2 traceback=False last='Nothing was verified. This is not a pass, and it is not a failure of a run.'
+[AS-DOC] N02 path is a regular file
+   expected: exit 2
+   observed: exit=2 traceback=False
+[AS-DOC] N03 empty existing directory
+   expected: non-zero, no traceback (2 'nothing verified' or 1 'failed')
+   observed: exit=1 traceback=False last='VERDICT: 1 check(s) failed' report_written=True
+[AS-DOC] N04 second directory missing
+   expected: determinism fails naming the directory; exit 1
+   observed: exit=1 determinism=fails missing_directories=['/tmp/v3fix-b7_a9fs0/nope']
+[AS-DOC] N05 second run missing one artifact
+   expected: determinism fails
+   observed: exit=1 determinism=fails missing=['wal-B.jsonl']
+[AS-DOC] N06 a run compared with itself (same path)
+   expected: refused: one directory is not two runs
+   observed: exit=1 determinism=fails
+[AS-DOC] N07 a run compared with a byte copy of itself
+   expected: (limit) indistinguishable from two runs
+   observed: exit=0 determinism=holds
+[AS-DOC] N08 second run has an extra file and a different manifest
+   expected: (by design) only ARTIFACT_FILES compared
+   observed: exit=0 determinism=holds
+[AS-DOC] N09 report path unwritable (a directory), valid run
+   expected: verdict printed, exit 0, no traceback
+   observed: exit=0 traceback=False last='The verdict above stands; the report file is missing, not the judgement.'
+[AS-DOC] N10 report path unwritable, failing run
+   expected: exit 1, no traceback
+   observed: exit=1 traceback=False
+[AS-DOC] N11 stale unwritable report
+   expected: n/a
+   observed: not testable here: chattr +i refused (chattr: Operation not permitted while setting flags on /tmp/v2run-w35rdkf4/verify-report.json)
+[AS-DOC] N12 challenge.py when its fixed 'no-such-run' path exists
+   expected: the input check still tests a missing path
+   observed: challenge exit=0; verifier on a directory that is not there              held    exit 2, Nothing was verified. This is not a pass, and it is not a failure of a run.
+Traceback (most recent call last):
+  File "/tmp/pkgrun/v3fixes.py", line 148, in <module>
+    main()
+  File "/tmp/pkgrun/v3fixes.py", line 139, in main
+    left = json.load(open(J(a, "verify-report.json")))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/v2run-wfgrek7a/verify-report.json'

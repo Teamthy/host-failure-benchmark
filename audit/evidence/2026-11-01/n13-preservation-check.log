@@ -1,0 +1,33 @@
+# N13 evidence-preservation check, generated %Y-%m-%dT%H:%M:%SZ
+# command: python3 audit/n13_preservation_check.py
+
+N13 preservation check: challenge.py against the evidence directory
+
+PRECONDITIONS
+  1. A completed run's artifact directory, produced by run.py on this tree.
+  2. challenge.py is pointed at that directory with one argument.
+  3. The property is evidence preservation: the tool may read the directory, and it
+     may write nothing into it, including no passing report.
+
+EXPECTED
+  - challenge.py exits 0.
+  - It prints its own assurance line for the directory.
+  - No file is created, removed or modified in the evidence directory.
+  - In particular no verify-report.json appears, which is the file his N13 opens.
+
+OBSERVED
+  exit=0
+  last line: Every mutation was caught by the check that claims to catch it.
+  files before=18 after=18  new=none  removed=none
+  report present: no
+  directory fingerprint unchanged: True
+
+ASSERTIONS
+  PASS  challenge exits 0
+  PASS  evidence directory is unchanged
+  PASS  no report is left behind for his check to open
+
+RESULT: PASS
+Reading: under the current implementation the property his N13 was testing is asserted
+by the tool itself, and the check must be rewritten to confirm that assertion and the
+absence of new files, not the presence of a report.

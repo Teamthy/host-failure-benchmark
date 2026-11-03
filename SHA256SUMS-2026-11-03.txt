@@ -1,0 +1,13 @@
+f5b3d1003cacd12eda5fa05a340e93e353c1dfba477f37f734997d0f6d172180  APPLY.md
+715b843a3ce1d6b61468093640b4c174447a96c991d8591ce537219bda218baf  README.md
+7675974e29b1c28ba4f52a38ad68b03c11f728bbaabaafb4fa38aebcea168398  TECHNICAL-NOTE.md
+e0d14a3afb22094894dc9ba7a97ee77706d24885e805be16882b51cf1c0ff177  audit/DISPOSITION-2026-11-01.md
+edc998fda2cabb0a388c5ab40d905c712cd79cac58cc37d5cf7bae034e2480b1  audit/FINDINGS-REGISTER.md
+e6812020c89da506923a078bda7311704637b459be5ab38b8077451adcabdd7c  audit/evidence/2026-11-01/n13-preservation-check.log
+4f70638458c9c21b10c2ad9c05f05d51295bc42f2d9248ee3c664ccead157f0b  audit/evidence/2026-11-01/regressions-19-modes.log
+f699cef2bb69f3b9220c70e39d0ead4a0b2dfa0aac52761170e8dea57434f69d  audit/evidence/2026-11-01/v04-inert-proof.log
+908e0d764ac3af6686c301734ff1096db99979010dacee618a3871c4fe6c3f63  audit/evidence/2026-11-01/v04-synthetic-skew.log
+84d55bdde8219bda8f3a95c3a96b323d7747da2d88991b6edb56049d8212545b  audit/evidence/2026-11-01/v2-after-p2.log
+3e55dead0ce01f1f311673744465ce58e3171745a9e76c38d4582388039137c0  audit/evidence/2026-11-01/v2-before-df0cf5a.log
+5b16f99a3c8ce2d8330ce86ddbdac9219ddb383bfdb3e8c9dd5812893f1aa2ae  audit/evidence/2026-11-01/v3-after-p2.log
+d51be8de377b3b284f94064e7882dfa8fb73c5723cc9cd733a76b87a1a9f1789  audit/evidence/2026-11-01/v3-before-df0cf5a.log

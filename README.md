@@ -14,7 +14,7 @@ The suite reports two classes separately, because they fail for different reason
 
 Class P is persistence and recovery: whether the evidence outlives the process that made it. Thirteen checks. Six further checks cover completeness, framing, line endings and the counter clock; a missing artifact or a journal that does not parse is a failure, not a shorter history.
 
-Class V is verification: whether a record that survived is the record it says it is, from who it says, under the policy version it names. This claim rests on a key derived from a fixed seed written in the source, which shows the binding is internally consistent and is not evidence of production key security or of anyone's institutional trust. Two checks.
+Class V is verification: whether a record that survived is the record it says it is, from who it says, under the policy version it names. This claim rests on a key derived from a fixed seed written in the source, which shows the binding is internally consistent and is not evidence of production key security or of anyone's institutional trust. Three checks.
 
 One distinction runs through both classes and is reported by the suite rather than assumed: a decision time carried through replay is source-asserted, not independently verified. `verify.py` prints that in every result, and the JSON report carries it as its own field.
 

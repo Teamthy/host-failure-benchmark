@@ -1,6 +1,8 @@
 # Disposition of the differential review, v1.2
 
-Reviewer: Behar (independent). Package received 1 November 2026:
+Reviewer: Behar Dalipi, research collaborator conducting independent technical verification,
+failure-model analysis and adversarial testing. Author, implementation and remediation:
+Olusanya Timothy. Package received 1 November 2026:
 `HFB_Teste_Diferenciale.zip`, 41,754 bytes, sha256 `b2a39986c4ad238446e9d2a4928e58a35cba2ff7ceed8fda3e357ac14db90ed4`.
 That is the hash declared in the review, measured on the file before anything was unpacked: match.
 
@@ -12,9 +14,18 @@ reproduced on a Windows 11 machine from that commit, and the outputs are in
 from running the reviewer's own scripts, unchanged, with `HFB_REPO` pointed at the tree under
 test. The logs are in `evidence/2026-11-01/`.
 
+## Attribution
+
+Behar Dalipi, research collaborator, conducted the independent technical verification, the
+failure-model analysis and the adversarial testing that this document disposes of. Olusanya Timothy
+implemented the benchmark, wrote every fix described here and wrote this document. Findings are the
+reviewer's; remediation, verdicts and the reasoning behind a dispute are the author's. The
+reviewer's contribution is not an endorsement of the benchmark. His independent rerun against
+`006d7ee` was in progress at the time of writing and no result from it appears below.
+
 ## Headline
 
-Counted from the two results files, not from prose. His `v2results.json` marks 23 outcomes as
+Counted from the two results files, not from prose. The reviewer's `v2results.json` marks 23 outcomes as
 defects, 9 as documented, 3 informational and 1 static; the review text calls that 25 deviations
 because it counts the static case and, it appears, one of the informational ones. The counts
 below are the files'.
@@ -50,17 +61,17 @@ so the outcome says nothing about the check. The same mutation with the replay c
 away is caught: `B` fails, `B.wal` fails, exit 1 (case `delta=+5`). `B.wal` compared the stored
 timestamp with the WAL before this patch; after it, `B` requires that agreement too.
 
-## The one case his harness can no longer run
+## The one case the reviewer's test rig can no longer run
 
 N13 required `challenge.py` to leave a passing `verify-report.json` in the evidence directory
 it was pointed at. I removed that behaviour: the report was written by verifying the run
 under test, which is how a failing report ended up sitting in evidence. `challenge.py` now
 verifies copies, writes nothing into the evidence directory, and fingerprints that directory at
-start and end, printing `the run you pointed me at is unchanged`. His N13 opens the file the
+start and end, printing `the run you pointed me at is unchanged`. The reviewer's N13 opens the file the
 defect used to leave and now raises `FileNotFoundError`. The property he wanted is asserted,
 more strongly, by the tool; the check itself needs rewriting to assert the fingerprint.
 
-## Threat-model notes, in his terms
+## Threat-model notes, in the reviewer's terms
 
 - V02, V04 and the V08/V25 probes are source-holder cases. The key is in the source, by design,
   and the note has said so since the first version. A holder of that key can forge records and
@@ -83,7 +94,7 @@ is in `evidence/2026-11-01/regressions-19-modes.log`.
 
 ## Case by case
 
-| id | what it tests | his outcome | after P2 | disposition | note |
+| id | what it tests | the reviewer's outcome | after P2 | disposition | note |
 | --- | --- | --- | --- | --- | --- |
 | V01 | WAL verdict BLOCK->ALLOW with stale signature, before replay | holds | holds | unchanged | Unauthenticated record with a stale signature still fails B. |
 | V02 | WAL verdict BLOCK->ALLOW and re-signed with the in-source key, before replay | DEFECT | holds | fixed | New check `B.decision` compares the recovered verdict and rule with the `guard_decision` the host logged when it decided. Host said BLOCK, store held ALLOW: exit 1 now, exit 0 before. Residual, stated in the same breath: a holder of the in-source key can edit the host journal too, so this is internal consistency, not attestation. |
@@ -122,7 +133,7 @@ is in `evidence/2026-11-01/regressions-19-modes.log`.
 | V35 | regressions.py against the first-audit repository (claim: each mode beat the old verifier) | DEFECT | n/a | not testable | Needs HFB_OLD_REPO, the first-audit repository. It was not set here and that repository is not in the package, so this one outcome is unmeasured rather than fixed. |
 | V36 | One idle connection blocks the store (old T37, documented as open) | INFO | INFO | open | One idle connection still blocks the single-threaded store. Documented as open; unchanged. |
 
-| id | his outcome on df0cf5a | after P2 | disposition | note |
+| id | the reviewer's outcome on df0cf5a | after P2 | disposition | note |
 | --- | --- | --- | --- | --- |
 | N01 | holds | holds | unchanged | Exit 2, message, no traceback, no report. |
 | N02 | holds | holds | unchanged | A path that is a regular file is still refused. |
@@ -136,4 +147,4 @@ is in `evidence/2026-11-01/regressions-19-modes.log`.
 | N10 | holds | holds | unchanged | A report path that cannot be written on a failing run still exits 1 without a traceback. |
 | N11 | untestable | held, tested another way | untestable as written | chattr +i is refused in this sandbox exactly as in his. Tested another way: a stale verify-report.json, chmod 444, inside a read-only directory. Result: verdict printed, exit 0, no traceback, the file left untouched, and new text naming it as an older run so it is not read as this one. |
 | N12 | DEFECT | holds | fixed | The "not a run" path is generated under a fresh temporary directory instead of a fixed name, so it is absent whatever is lying around in the temp directory. |
-| N13 | DEFECT | raises in his harness | fixed, his check needs updating | challenge.py no longer writes a report into the directory it was pointed at; it verifies copies and ends by fingerprinting the evidence directory and printing that it is unchanged. His N13 now raises FileNotFoundError because it opens the file the defect used to leave. The property he was testing is now asserted by the tool itself, and that assertion is printed in every run. |
+| N13 | DEFECT | raises against the current build | fixed, the reviewer's check needs updating | challenge.py no longer writes a report into the directory it was pointed at; it verifies copies, writes nothing into the evidence directory, and prints among its held assertions that the run it was pointed at is unchanged. The reviewer's N13 now raises FileNotFoundError because it opens the file the defect used to leave. The property the reviewer was testing is now asserted by the tool itself, and that assertion is printed in every run. |
