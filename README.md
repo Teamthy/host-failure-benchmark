@@ -2,6 +2,10 @@
 
 A small local suite about one question: when an agent's guard decides something and the record of that decision does not reach the audit store, what can still be known afterwards?
 
+Version 3 of this benchmark, held at dab7483e (the SHA-256 prefix of the version 3 ZIP), was reviewed by Behar Dalipi, a research collaborator who coordinated two rounds of AI-assisted technical review. Every finding he raised is answered in the register, either by the patch that closes it or by the reason it stays open; the corrections and the verdicts are mine. His contribution is verification and adversarial testing, and expressly not an endorsement of the benchmark. The results cover the modes tested, and other filesystems and concurrent writers are unverified.
+
+Behar Dalipi is also a co-author of the benchmark suite. The review described above concerned Olusanya Timothy's implementation. The contribution record identifies his authorship and review contributions.
+
 Repository: https://github.com/Teamthy/host-failure-benchmark
 
 There is no model here. There is no network beyond loopback and no external key. Two processes talk over a socket for about one second, one of them exits deliberately in the middle of its work (`os._exit(9)`, not a signal from outside), and the artifacts are checked by a separate program that trusts none of them.
